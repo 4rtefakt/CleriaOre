@@ -8,6 +8,8 @@
 
 static HMODULE g_real = nullptr;
 
+namespace ore { void ui_on_dinput(void* dinput8); }   // ui.cpp: the game's keyboard is held while the panel is open
+
 void proxy_load_real() {
     if (g_real) return;
     char path[MAX_PATH];
@@ -26,7 +28,10 @@ extern "C" {
 HRESULT WINAPI DirectInput8Create(HINSTANCE hinst, DWORD ver, const void* riid, void** out, void* outer) {
     typedef HRESULT(WINAPI* fn)(HINSTANCE, DWORD, const void*, void**, void*);
     static fn p = (fn)real("DirectInput8Create");
-    return p ? p(hinst, ver, riid, out, outer) : E_FAIL;
+    if (!p) return E_FAIL;
+    const HRESULT hr = p(hinst, ver, riid, out, outer);
+    if (SUCCEEDED(hr) && out && *out) ore::ui_on_dinput(*out);
+    return hr;
 }
 
 HRESULT WINAPI DllCanUnloadNow() {

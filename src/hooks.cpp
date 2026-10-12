@@ -12,6 +12,7 @@
 #include "MinHook.h"
 #include "files.hpp"
 #include "ore.hpp"
+#include "ui.hpp"
 
 namespace ore {
 
@@ -52,6 +53,7 @@ int __fastcall hook_read(Reader* r, void*, void* dst, std::uint32_t n, std::uint
 using StepFn = void(__fastcall*)(char active, char arg);   // FUN_004106e0: `active` = a real step, 0 = an idle one
 using FrameFn = int(__cdecl*)();                           // FUN_00410440
 constexpr std::uintptr_t kStep = 0x4106e0, kFrame = 0x410440;
+constexpr std::uintptr_t kDevice = 0x7651c0;   // the game's IDirect3DDevice9*
 constexpr std::uint8_t kStepBytes[] = {0x83, 0xec, 0x30, 0x88, 0x0d, 0xf0, 0xc0, 0x74, 0x00, 0x88, 0x15, 0xf1, 0xc0, 0x74, 0x00, 0x0f};
 constexpr std::uint8_t kFrameBytes[] = {0xa1, 0xc0, 0x51, 0x76, 0x00, 0x50, 0x8b, 0x08, 0xff, 0x51, 0x0c, 0x85, 0xc0, 0x79, 0x1e, 0x3d};
 
@@ -59,12 +61,15 @@ StepFn g_step = nullptr;
 FrameFn g_frame = nullptr;
 bool g_hooked = false;
 
+// While the F1 panel is open the steps are idle ones, as the game runs a frame it has no step for.
 void __fastcall hook_step(char active, char arg) {
+    if (ui_holds_game()) active = 0;
     g_step(active, arg);
     if (active) on_tick();
 }
 
 int __cdecl hook_frame() {
+    ui_attach(*reinterpret_cast<void**>(kDevice));
     const int hr = g_frame();
     on_frame();
     return hr;

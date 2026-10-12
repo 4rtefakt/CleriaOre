@@ -22,6 +22,8 @@ namespace ore {
 namespace {
 
 const HANDLE g_started = CreateEventW(nullptr, TRUE, FALSE, nullptr);   // manual reset: set for good
+Ini g_ini;                     // cleriaore.ini
+bool g_use = true;             // [cleria.mods] UseMods
 std::vector<mods::Mod> g_list;
 std::vector<std::unique_ptr<script::Mod>> g_scripts;
 std::string g_room;            // the room of the last tick ("" = none)
@@ -44,16 +46,38 @@ fs::path save_file(const char* file) { return dir() / "saves" / fs::path(file).f
 
 }  // namespace
 
+std::vector<mods::Mod>& mod_list() { return g_list; }
+std::vector<std::unique_ptr<script::Mod>>& scripts() { return g_scripts; }
+
+void save_prefs() {
+    const mods::Prefs p = mods::prefs_of(g_list, g_use);
+    g_ini.set_int("cleria.mods", "UseMods", p.use ? 1 : 0);
+    g_ini.set_string("cleria.mods", "Order", mods::join_list(p.order));
+    g_ini.set_string("cleria.mods", "Active", mods::join_list(p.active));
+    g_ini.save(dir() / "cleriaore.ini");
+}
+
+// As CleriaCore keeps them in cleria.ini (view_lua.inl LuaHost::setting).
+std::optional<std::string> setting(const std::string& mod, const std::string& key) {
+    auto v = g_ini.raw("cleria.mod." + mod, key);
+    if (v && v->size() >= 2 && v->front() == '"' && v->back() == '"') v = v->substr(1, v->size() - 2);
+    return v;
+}
+bool set_setting(const std::string& mod, const std::string& key, const std::string& value) {
+    g_ini.set_string("cleria.mod." + mod, key, value);
+    return g_ini.save(dir() / "cleriaore.ini");
+}
+
 void wait_started() { WaitForSingleObject(g_started, INFINITE); }
 
 void start(bool hooked) {
     // The game's first file lookup waits for this function (hooks.cpp): it must set g_started on every path.
     struct Done { ~Done() { SetEvent(g_started); } } done;
     log(hooked ? "[hooks] installed" : "[hooks] none: this process is not the yso_win.exe build CleriaOre knows");
-    Ini ini;
+    Ini& ini = g_ini;
     ini.load(dir() / "cleriaore.ini");
     mods::Prefs prefs;
-    prefs.use = ini.get_int("cleria.mods", "UseMods").value_or(1) != 0;
+    prefs.use = g_use = ini.get_int("cleria.mods", "UseMods").value_or(1) != 0;
     prefs.order = mods::split_list(ini.get_string("cleria.mods", "Order").value_or(""));
     prefs.active = mods::split_list(ini.get_string("cleria.mods", "Active").value_or(""));
 

@@ -1,6 +1,6 @@
 // What a mod's script reaches of the retail game: cleria::script::Host over the memory of yso_win.exe
 // (the build hooks.cpp checks; nothing here is read unless the hooks went in). What is not backed yet
-// keeps script::Host's harmless default: the setters, settings, drawing, the page widgets.
+// keeps script::Host's harmless default: the setters, images and icons, a mod's data folder.
 #include <algorithm>
 #include <cstdint>
 #include <cstdio>
@@ -9,6 +9,7 @@
 #include "cleria/mod_events.hpp"
 #include "cleria/modscript.hpp"
 #include "ore.hpp"
+#include "ui.hpp"
 
 using namespace cleria;
 
@@ -33,6 +34,7 @@ struct RetailHost : script::Host {
     void log(const std::string& mod, const std::string& text) override { ore::log("[lua:%s] %s", mod.c_str(), text.c_str()); }
     void notice(const std::string& mod, const std::string& head, const std::string& text) override {
         ore::log("[lua:%s] notice: %s %s", mod.c_str(), head.c_str(), text.c_str());
+        ui_notice(head, text);
     }
     void failed(const std::string& mod, const std::string& error) override { ore::log("[lua:%s] disabled: %s", mod.c_str(), error.c_str()); }
 
@@ -69,6 +71,70 @@ struct RetailHost : script::Host {
         events::bus().emit(e);
     }
     bool save_ready() override { return !session_pending(); }
+    std::optional<std::string> setting(const std::string& mod, const std::string& key) override { return ore::setting(mod, key); }
+    bool set_setting(const std::string& mod, const std::string& key, const std::string& value) override { return ore::set_setting(mod, key, value); }
+
+    // ---- drawing (a HUD layer, ui.cpp) and the page widgets: CleriaCore's own UI kit (view_lua.inl) ----
+    std::map<std::string, std::uint32_t> named_colors() override {
+        return {{"gold", ui::kGold}, {"label", ui::kLabel}, {"value", ui::kValue}, {"muted", ui::kMuted},
+                {"desc", ui::kDesc}, {"good", ui::kGood}, {"warn", ui::kWarn}, {"section", ui::kSection},
+                {"panel", ui::kPanel & 0x00FFFFFFu}, {"edge", ui::kPanelEdge & 0x00FFFFFFu}, {"row", ui::kRow},
+                {"white", IM_COL32(255, 255, 255, 255)}, {"black", IM_COL32(0, 0, 0, 255)}};
+    }
+    static ImFont* font(int f) {
+        switch (f) {
+            case 1: return ui::F.medium;
+            case 2: return ui::F.bold;
+            case 3: return ui::F.cond;
+            case 4: return ui::F.cond_med;
+            default: return ui::F.body;
+        }
+    }
+    void draw_text(float x, float y, const std::string& t, float px, int f, std::uint32_t col) override {
+        if (g_hud && px > 0) ui::text(g_hud, font(f), px, {x, y}, col, t.c_str());
+    }
+    std::pair<float, float> text_size(const std::string& t, float px, int f) override {
+        if (!font(f)) return {0.0f, 0.0f};   // before the overlay exists
+        const ImVec2 s = ui::text_size(font(f), px, t.c_str());
+        return {s.x, s.y};
+    }
+    void draw_rect(float x0, float y0, float x1, float y1, std::uint32_t col, float rounding, float thickness) override {
+        if (!g_hud) return;
+        if (thickness <= 0) g_hud->AddRectFilled({x0, y0}, {x1, y1}, col, rounding);
+        else g_hud->AddRect({x0, y0}, {x1, y1}, col, rounding, 0, thickness);
+    }
+    void draw_line(float x0, float y0, float x1, float y1, std::uint32_t col, float thickness) override {
+        if (g_hud) g_hud->AddLine({x0, y0}, {x1, y1}, col, thickness);
+    }
+    void draw_circle(float x, float y, float r, std::uint32_t col, float thickness) override {
+        if (!g_hud) return;
+        if (thickness <= 0) g_hud->AddCircleFilled({x, y}, r, col, 40);
+        else g_hud->AddCircle({x, y}, r, col, 40, thickness);
+    }
+    void ui_section(void* list, const std::string& title) override { ui::section(*static_cast<ui::List*>(list), title.c_str()); }
+    bool ui_toggle(void* list, const std::string& label, bool* v, const std::string& desc, bool enabled) override {
+        return ui::toggle(*static_cast<ui::List*>(list), label.c_str(), v, desc.c_str(), enabled);
+    }
+    bool ui_slider(void* list, const std::string& label, float* v, float lo, float hi, float step, const std::string& fmt,
+                   const std::string& desc, bool enabled) override {
+        return ui::slider(*static_cast<ui::List*>(list), label.c_str(), v, lo, hi, step, fmt.c_str(), desc.c_str(), enabled);
+    }
+    bool ui_choice(void* list, const std::string& label, int* idx, const std::vector<std::string>& items, const std::string& desc,
+                   bool enabled) override {
+        std::vector<const char*> p;
+        for (const std::string& s : items) p.push_back(s.c_str());
+        return ui::choice(*static_cast<ui::List*>(list), label.c_str(), idx, p.data(), int(p.size()), desc.c_str(), enabled);
+    }
+    bool ui_button(void* list, const std::string& label, const std::string& desc, bool enabled) override {
+        return ui::button(*static_cast<ui::List*>(list), label.c_str(), desc.c_str(), enabled);
+    }
+    bool ui_text_field(void* list, const std::string& label, std::string* v, const std::string& desc, bool secret,
+                       const std::string& empty) override {
+        return ui::text_field(*static_cast<ui::List*>(list), label.c_str(), v, desc.c_str(), secret, empty.c_str());
+    }
+    void ui_info(void* list, const std::string& label, const std::string& value, std::uint32_t col, const std::string& desc) override {
+        ui::info(*static_cast<ui::List*>(list), label.c_str(), value.c_str(), col, desc.empty() ? nullptr : desc.c_str());
+    }
     std::map<std::string, std::string>* save_storage(const std::string& mod) override { return &sidecar().mod[mod]; }
     void refresh() override {
         if (in_game()) at<std::int32_t>(kRecalc) |= 0x75;

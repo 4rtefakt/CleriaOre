@@ -1,13 +1,20 @@
 // CleriaOre: CleriaCore's mod layer (cleria-modkit) hosted inside the retail yso_win.exe.
 //
 // Everything of CleriaOre lives in <the game folder>/cleriaore/:
-//     cleriaore.ini    [cleria.mods] UseMods / Order / Active, as in CleriaCore's cleria.ini
+//     cleriaore.ini    [cleria.mods] UseMods / Order / Active and a mod's settings [cleria.mod.<id>],
+//                      as in CleriaCore's cleria.ini
+//     fonts/           the overlay's fonts (CleriaCore's Fira Sans)
 //     cleriaore.log    this session's log
 //     mods/            the mods: folders, .zip and .cleriamod (CleriaCore's samples/mods/README.md)
 //     saves/           yso_NN.cleria: what the mods keep with the save yso_NN.bin (cleria::Sidecar)
 #pragma once
 #include <filesystem>
+#include <memory>
+#include <optional>
+#include <string>
+#include <vector>
 
+#include "cleria/mods.hpp"
 #include "cleria/modscript.hpp"
 #include "cleria/sidecar.hpp"
 
@@ -31,5 +38,12 @@ void on_loaded(const char* file);      // a save was read into the game
 void on_saved(const char* file);       // a save was written
 cleria::Sidecar& sidecar();            // what the mods keep with this session's save
 bool session_pending();                // a new game / a load whose event was not delivered yet
+// For the overlay (ui.cpp, the game thread):
+std::vector<cleria::mods::Mod>& mod_list();                           // every mod found, in load order
+std::vector<std::unique_ptr<cleria::script::Mod>>& scripts();         // the started scripts
+void save_prefs();                                                    // mod_list()'s order and On / Off -> cleriaore.ini
+// A mod's settings, cleriaore.ini [cleria.mod.<id>] (cleria.settings):
+std::optional<std::string> setting(const std::string& mod, const std::string& key);
+bool set_setting(const std::string& mod, const std::string& key, const std::string& value);
 
 }  // namespace ore

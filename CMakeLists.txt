@@ -2,7 +2,7 @@
 # that hosts CleriaCore's mod layer (external/CleriaCore, cmake/modkit.cmake) inside the game.
 #
 #   git submodule update --init
-#   python external/CleriaCore/tools/fetch_deps.py --only lua,miniz
+#   python external/CleriaCore/tools/fetch_deps.py --only lua,miniz,fonts
 #   cmake -S . -B build -G "Visual Studio 17 2022" -A Win32
 #   cmake --build build --config Release        -> build/Release/dinput8.dll
 #   ctest --test-dir build -C Release
@@ -34,6 +34,20 @@ add_library(minhook STATIC
 target_include_directories(minhook PUBLIC ${minhook_SOURCE_DIR}/include)
 target_compile_options(minhook PRIVATE /W0)
 
+# Dear ImGui 1.92.9b (ocornut/imgui, MIT), the version CleriaCore builds: its UI kit (apps/cleria-view/view_ui.inl)
+# is used as it is, on the DirectX 9 and Win32 backends here.
+FetchContent_Declare(imgui GIT_REPOSITORY https://github.com/ocornut/imgui.git GIT_TAG v1.92.9b)
+FetchContent_MakeAvailable(imgui)
+add_library(imgui STATIC
+  ${imgui_SOURCE_DIR}/imgui.cpp
+  ${imgui_SOURCE_DIR}/imgui_draw.cpp
+  ${imgui_SOURCE_DIR}/imgui_tables.cpp
+  ${imgui_SOURCE_DIR}/imgui_widgets.cpp
+  ${imgui_SOURCE_DIR}/backends/imgui_impl_dx9.cpp
+  ${imgui_SOURCE_DIR}/backends/imgui_impl_win32.cpp)
+target_include_directories(imgui PUBLIC ${imgui_SOURCE_DIR} ${imgui_SOURCE_DIR}/backends)
+target_compile_options(imgui PRIVATE /W0)
+
 add_library(dinput8 SHARED
   src/dllmain.cpp
   src/proxy_dinput8.cpp
@@ -42,8 +56,11 @@ add_library(dinput8 SHARED
   src/files.cpp
   src/hooks.cpp
   src/host.cpp
+  src/ui.cpp
   src/exports.def)
-target_link_libraries(dinput8 PRIVATE cleria-modkit miniz minhook)
+target_include_directories(dinput8 PRIVATE external/CleriaCore/apps/cleria-view)   # view_ui.inl
+target_link_libraries(dinput8 PRIVATE cleria-modkit miniz minhook imgui d3d9)
+target_compile_definitions(dinput8 PRIVATE NOMINMAX)   # CleriaCore's sources use std::min / std::max
 set_target_properties(dinput8 PROPERTIES PREFIX "" OUTPUT_NAME "dinput8")
 
 # ore-loadtest: loads the built dinput8.dll as the game would, checks that DirectInput8Create still
