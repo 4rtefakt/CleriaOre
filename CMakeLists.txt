@@ -22,12 +22,26 @@ endif()
 
 include(external/CleriaCore/cmake/modkit.cmake)
 
+# MinHook (function detours). The v1.3.3 tag predates its CMake support: it is fetched, and its C files built here.
+include(FetchContent)
+FetchContent_Declare(minhook GIT_REPOSITORY https://github.com/TsudaKageyu/minhook.git GIT_TAG v1.3.3)
+FetchContent_MakeAvailable(minhook)
+add_library(minhook STATIC
+  ${minhook_SOURCE_DIR}/src/buffer.c
+  ${minhook_SOURCE_DIR}/src/hook.c
+  ${minhook_SOURCE_DIR}/src/trampoline.c
+  ${minhook_SOURCE_DIR}/src/hde/hde32.c)
+target_include_directories(minhook PUBLIC ${minhook_SOURCE_DIR}/include)
+target_compile_options(minhook PRIVATE /W0)
+
 add_library(dinput8 SHARED
   src/dllmain.cpp
   src/proxy_dinput8.cpp
   src/ore.cpp
+  src/files.cpp
+  src/hooks.cpp
   src/exports.def)
-target_link_libraries(dinput8 PRIVATE cleria-modkit)
+target_link_libraries(dinput8 PRIVATE cleria-modkit miniz minhook)
 set_target_properties(dinput8 PROPERTIES PREFIX "" OUTPUT_NAME "dinput8")
 
 # ore-loadtest: loads the built dinput8.dll as the game would, checks that DirectInput8Create still
@@ -37,3 +51,10 @@ add_executable(ore-loadtest tests/loadtest.cpp)
 target_link_libraries(ore-loadtest PRIVATE dxguid)
 add_dependencies(ore-loadtest dinput8)
 add_test(NAME loadtest COMMAND ore-loadtest "${CMAKE_SOURCE_DIR}/external/CleriaCore/samples/mods/hello")
+
+# ore-filestest: the file overrides as the game's archive reader would ask for them (src/files), on a
+# scratch mod folder under %TEMP%: a plain read, a ".z" packed on demand, a path no mod provides.
+add_executable(ore-filestest tests/filestest.cpp src/files.cpp src/ore.cpp)
+target_include_directories(ore-filestest PRIVATE src)
+target_link_libraries(ore-filestest PRIVATE cleria-modkit miniz)
+add_test(NAME filestest COMMAND ore-filestest)

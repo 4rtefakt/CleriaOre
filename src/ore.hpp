@@ -11,6 +11,8 @@ namespace ore {
 
 const std::filesystem::path& dir();    // <the game folder>/cleriaore
 void log(const char* fmt, ...);        // one line into cleriaore.log
-void start();                          // load the mods, start their Lua scripts (once, off DllMain)
+bool install_hooks();                  // hooks.cpp: false = not the yso_win.exe build the addresses are of, nothing hooked
+void start(bool hooked);               // load the mods, start their Lua scripts (once, off DllMain)
+void wait_started();                   // returns once start() is done
 
 }  // namespace ore

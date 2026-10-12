@@ -15,10 +15,19 @@ A scaffold. What works:
   system DLL.
 - CleriaCore's mod layer built into it (the `cleria-modkit` library, shared source, not a copy): mods are
   discovered, checked and ordered, and their Lua scripts start in the sandbox.
+- File overrides: a mod's `files/` folder replaces the game's packed files. The archive reader's lookup
+  and read (`FUN_005defa0`, `FUN_005df220`) are hooked; a file the game holds packed (`.z`) is packed on
+  demand from the mod's plain file. Not covered: the loose folders (`music`, movies) and file names that
+  are not ASCII.
 
-What does not exist yet: every hook into the game. No file override reaches the game, no event fires, and a
-script's `cleria.*` calls about the game answer their defaults (no game). Not yet run inside the real game:
-only `ore-loadtest`, which loads the DLL in a stand-in process.
+The hooks are for one build only, the Steam `yso_win.exe` linked 2024-01-08: on any other exe nothing is
+hooked and the log says so.
+
+What does not exist yet: every other hook. No event fires, and a script's `cleria.*` calls about the game
+answer their defaults (no game).
+
+**Not yet run inside the real game.** The tests load the DLL in a stand-in process (`ore-loadtest`) and
+call the override code directly (`ore-filestest`); the hooks themselves have only been built.
 
 ## Build
 

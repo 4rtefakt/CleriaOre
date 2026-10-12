@@ -58,13 +58,19 @@ struct RetailHost : script::Host {
     void failed(const std::string& mod, const std::string& error) override { ore::log("[lua:%s] disabled: %s", mod.c_str(), error.c_str()); }
 };
 
+const HANDLE g_started = CreateEventW(nullptr, TRUE, FALSE, nullptr);   // manual reset: set for good
 RetailHost g_host;
 std::vector<mods::Mod> g_list;
 std::vector<std::unique_ptr<script::Mod>> g_scripts;
 
 }  // namespace
 
-void start() {
+void wait_started() { WaitForSingleObject(g_started, INFINITE); }
+
+void start(bool hooked) {
+    // The game's first file lookup waits for this function (hooks.cpp): it must set g_started on every path.
+    struct Done { ~Done() { SetEvent(g_started); } } done;
+    log(hooked ? "[hooks] installed" : "[hooks] none: this process is not the yso_win.exe build CleriaOre knows");
     Ini ini;
     ini.load(dir() / "cleriaore.ini");
     mods::Prefs prefs;
