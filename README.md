@@ -19,15 +19,16 @@ A scaffold. What works:
   and read (`FUN_005defa0`, `FUN_005df220`) are hooked; a file the game holds packed (`.z`) is packed on
   demand from the mod's plain file. Not covered: the loose folders (`music`, movies) and file names that
   are not ASCII.
+- Lua on the game thread: `tick` (the game's 60 Hz step) and `frame`, the `room_enter` and `flag_changed`
+  events, and what a script reads of the game: the room, the flags, the character, the player's HP, level,
+  SP, EXP and weapon tier.
 
 The hooks are for one build only, the Steam `yso_win.exe` linked 2024-01-08: on any other exe nothing is
 hooked and the log says so.
 
-What does not exist yet: every other hook. No event fires, and a script's `cleria.*` calls about the game
-answer their defaults (no game).
-
-**Not yet run inside the real game.** The tests load the DLL in a stand-in process (`ore-loadtest`) and
-call the override code directly (`ore-filestest`); the hooks themselves have only been built.
+What does not exist yet, so a script's call answers its default: gifts and the grant filter, the setters
+of the player's numbers, `new_game` / `load` / `save` and the per-save storage (a load from inside a game
+is seen as many `flag_changed`), `frozen()`, and everything drawn (HUD layers, a mod's page).
 
 ## Build
 

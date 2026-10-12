@@ -38,8 +38,10 @@ add_library(dinput8 SHARED
   src/dllmain.cpp
   src/proxy_dinput8.cpp
   src/ore.cpp
+  src/log.cpp
   src/files.cpp
   src/hooks.cpp
+  src/host.cpp
   src/exports.def)
 target_link_libraries(dinput8 PRIVATE cleria-modkit miniz minhook)
 set_target_properties(dinput8 PROPERTIES PREFIX "" OUTPUT_NAME "dinput8")
@@ -54,7 +56,7 @@ add_test(NAME loadtest COMMAND ore-loadtest "${CMAKE_SOURCE_DIR}/external/Cleria
 
 # ore-filestest: the file overrides as the game's archive reader would ask for them (src/files), on a
 # scratch mod folder under %TEMP%: a plain read, a ".z" packed on demand, a path no mod provides.
-add_executable(ore-filestest tests/filestest.cpp src/files.cpp src/ore.cpp)
+add_executable(ore-filestest tests/filestest.cpp src/files.cpp src/log.cpp)
 target_include_directories(ore-filestest PRIVATE src)
 target_link_libraries(ore-filestest PRIVATE cleria-modkit miniz)
 add_test(NAME filestest COMMAND ore-filestest)
