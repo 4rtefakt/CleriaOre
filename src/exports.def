@@ -1,0 +1,10 @@
+; The dinput8.dll entry points, so this DLL can stand in for the system one. Each forwards to the
+; real system dinput8.dll (proxy_dinput8.cpp).
+LIBRARY dinput8
+EXPORTS
+    DirectInput8Create
+    DllCanUnloadNow PRIVATE
+    DllGetClassObject PRIVATE
+    DllRegisterServer PRIVATE
+    DllUnregisterServer PRIVATE
+    GetdfDIJoystick
