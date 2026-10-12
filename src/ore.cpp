@@ -2,11 +2,13 @@
 
 #include <windows.h>
 
+#include <algorithm>
 #include <chrono>
 #include <memory>
 #include <string>
 #include <vector>
 
+#include "cleria/content.hpp"
 #include "cleria/ini.hpp"
 #include "cleria/mod_events.hpp"
 #include "cleria/mods.hpp"
@@ -79,6 +81,32 @@ void on_tick() {
     }
     if (!room.empty()) g_watch.diff(h.flags(), events::bus(), room);
     for (auto& m : g_scripts) m->on_tick();
+}
+
+GrantDecision on_grant(GrantQuery q) {
+    GrantDecision d;
+    if (WaitForSingleObject(g_started, 0) != WAIT_OBJECT_0 || g_scripts.empty()) return d;
+    script::Host& h = host();
+    const std::string room = h.room();
+    q.flags = h.flags();
+    for (auto& m : g_scripts) {
+        if (!m->has_filter() || !m->ok()) continue;
+        d = m->filter(q, room);
+        if (d.action != GrantDecision::Action::Pass) return d;
+    }
+    // As CleriaCore reports a script's grant (view_content.inl content_filter): an item cell that rises.
+    if (q.kind == GrantQuery::Kind::Store && q.index >= 0 && q.index < content::kRetailItems &&
+        q.value > (std::max)(q.old_value, 0)) {
+        events::Event e;
+        e.kind = events::Kind::ItemObtained;
+        e.room = room;
+        e.item = q.index;
+        e.count = q.value - (std::max)(q.old_value, 0);
+        e.source = q.script.rfind("s_box", 0) == 0 ? "chest" : "script";   // [H] by the script's name: the room's chest list is not read yet
+        e.script = q.script;
+        events::bus().emit(e);
+    }
+    return d;
 }
 
 void on_frame() {

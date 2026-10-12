@@ -22,13 +22,18 @@ A scaffold. What works:
 - Lua on the game thread: `tick` (the game's 60 Hz step) and `frame`, the `room_enter` and `flag_changed`
   events, and what a script reads of the game: the room, the flags, the character, the player's HP, level,
   SP, EXP and weapon tier.
+- The script VM's grants: `cleria.content.add_filter` sees a script's flag stores (ops 0x64 and 0x67, not
+  the rest of the store family), the item icon (0x116) and the "Acquired" box (0xD5), and may pass,
+  suppress or replace them; `cleria.content.give`; `item_obtained`. A query's `object` is empty, and
+  `item_obtained` tells a chest from another script by the script's name (`s_box...`).
 
 The hooks are for one build only, the Steam `yso_win.exe` linked 2024-01-08: on any other exe nothing is
 hooked and the log says so.
 
-What does not exist yet, so a script's call answers its default: gifts and the grant filter, the setters
-of the player's numbers, `new_game` / `load` / `save` and the per-save storage (a load from inside a game
-is seen as many `flag_changed`), `frozen()`, and everything drawn (HUD layers, a mod's page).
+What does not exist yet, so a script's call answers its default: `chest_opened` and the other events,
+the setters of the player's numbers, `new_game` / `load` / `save` and the per-save storage (a load from
+inside a game is seen as many `flag_changed`), `frozen()`, `content/*.ini`, and everything drawn (HUD
+layers, a mod's page).
 
 ## Build
 

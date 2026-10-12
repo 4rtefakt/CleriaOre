@@ -7,7 +7,7 @@
 #pragma once
 #include <filesystem>
 
-namespace cleria::script { struct Host; }
+#include "cleria/modscript.hpp"
 
 namespace ore {
 
@@ -20,5 +20,8 @@ bool hooked();                         // hooks.cpp: the hooks are in (this proc
 cleria::script::Host& host();          // host.cpp: the retail game as a script reaches it
 void on_tick();                        // one step of the game's 60 Hz simulation ran (the game thread)
 void on_frame();                       // one frame was rendered (the game thread)
+// A grant of the game's script VM, before it happens (hooks.cpp fills `q` but its flags): the mods'
+// filters answer in load order, and a store that passes with a higher item count raises item_obtained.
+cleria::GrantDecision on_grant(cleria::GrantQuery q);
 
 }  // namespace ore

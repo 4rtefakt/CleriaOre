@@ -1,9 +1,11 @@
 // What a mod's script reaches of the retail game: cleria::script::Host over the memory of yso_win.exe
 // (the build hooks.cpp checks; nothing here is read unless the hooks went in). What is not backed yet
-// keeps script::Host's harmless default: gifts, the filters, storage, drawing, the page widgets.
+// keeps script::Host's harmless default: the setters, storage, drawing, the page widgets.
+#include <algorithm>
 #include <cstdint>
 #include <cstdio>
 
+#include "cleria/content.hpp"
 #include "cleria/mod_events.hpp"
 #include "cleria/modscript.hpp"
 #include "ore.hpp"
@@ -23,6 +25,8 @@ constexpr std::uintptr_t kPlayer = 0x74c09c;      // the player's actor, null ou
 constexpr std::uintptr_t kMaxHp = 0x76a72c, kHp = 0x76a730;            // floats
 constexpr std::uintptr_t kExp = 0x76a748;         // float
 constexpr std::uintptr_t kSp = 0x76a75c, kLevel = 0x76a760;            // ints
+constexpr std::uintptr_t kRecalc = 0x76b914;      // |= 0x75: the derived state is rebuilt (as the pickup FUN_00585ff0 asks)
+constexpr std::uintptr_t kItemMagnitude = 0x76f1e4;   // INVINFO in memory: the i32 magnitude of item id at + id * 0xb8
 constexpr int kFlagCharacter = 150, kFlagWeapon = 0x94, kFlagScene = 0x1f9;
 
 struct RetailHost : script::Host {
@@ -45,6 +49,28 @@ struct RetailHost : script::Host {
         return name;
     }
     void emit(const events::Event& e) override { events::bus().emit(e); }
+
+    // As CleriaCore's content_give for the retail ids: the count cell (0..99), the gold 0x78..0x7F into SP.
+    void give(int id, int count, const std::string& source) override {
+        if (!in_game() || id < 0 || id >= content::kRetailItems || count < 1) return;
+        if (id >= 0x78) {
+            const std::int64_t sp = at<std::int32_t>(kSp) + std::int64_t(at<std::int32_t>(kItemMagnitude + id * 0xb8)) * count;
+            at<std::int32_t>(kSp) = std::int32_t(std::clamp<std::int64_t>(sp, 0, 999999));
+        } else {
+            flags()[id] = content::add_count(flags()[id], count);
+            refresh();
+        }
+        events::Event e;
+        e.kind = events::Kind::ItemObtained;
+        e.room = room();
+        e.item = id;
+        e.count = count;
+        e.source = source;
+        events::bus().emit(e);
+    }
+    void refresh() override {
+        if (in_game()) at<std::int32_t>(kRecalc) |= 0x75;
+    }
 
     double stat(Stat s) override {
         if (!in_game()) return 0;
