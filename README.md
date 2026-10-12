@@ -26,13 +26,15 @@ A scaffold. What works:
   the rest of the store family), the item icon (0x116) and the "Acquired" box (0xD5), and may pass,
   suppress or replace them; `cleria.content.give`; `item_obtained`. A query's `object` is empty, and
   `item_obtained` tells a chest from another script by the script's name (`s_box...`).
+- Sessions: `new_game`, `load` and `save`, and `cleria.save`, a mod's storage kept with the save. It is
+  CleriaCore's sidecar file, `yso_NN.cleria`, but in `cleriaore/saves/`, not beside the game's save (which
+  may be in the Steam Cloud only): it does not follow the save to another machine.
 
 The hooks are for one build only, the Steam `yso_win.exe` linked 2024-01-08: on any other exe nothing is
 hooked and the log says so.
 
 What does not exist yet, so a script's call answers its default: `chest_opened` and the other events,
-the setters of the player's numbers, `new_game` / `load` / `save` and the per-save storage (a load from
-inside a game is seen as many `flag_changed`), `frozen()`, `content/*.ini`, and everything drawn (HUD
+the setters of the player's numbers, `game.save`, `frozen()`, `content/*.ini`, and everything drawn (HUD
 layers, a mod's page).
 
 ## Build

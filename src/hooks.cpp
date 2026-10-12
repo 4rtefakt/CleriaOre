@@ -2,6 +2,7 @@
 // so nothing is hooked unless the process is that exe: its link time and the first bytes of each hooked
 // hooked site are checked first.
 #include <windows.h>
+#include <intrin.h>
 
 #include <cstdint>
 #include <cctype>
@@ -202,6 +203,47 @@ void __fastcall hook_window(void* script, void*, int a, int item, const char* te
     g_window(script, a, item, text);
 }
 
+// ---- the sessions (menu_re/SAVELOAD.md of CleriaCore) --------------------------------------------------
+//   FUN_0041fd10()           resets the flags for g_flags[150]'s character. The title's "start a game"
+//                            helpers (0x575970..0x575bff) call it; so do the boot and both loaders.
+//   FUN_0042f5e0(file)       reads a save into the game (the Load page); FUN_0042fb90(file) is the other reader
+//   FUN_0042e9a0(file)       writes a save
+// Both readers and the writer answer a negative code when they fail.
+using InitFn = void(__cdecl*)();
+using SaveFn = int(__fastcall*)(char* file);
+constexpr std::uintptr_t kInit = 0x41fd10, kLoad = 0x42f5e0, kLoad2 = 0x42fb90, kSave = 0x42e9a0;
+constexpr std::uintptr_t kStartFirst = 0x575970, kStartLast = 0x575c00;
+constexpr std::uint8_t kInitBytes[] = {0x55, 0x8b, 0xec, 0x83, 0xe4, 0xf8, 0x81, 0xec, 0x04, 0x04, 0x00, 0x00, 0x53, 0x56, 0x8b, 0x35};
+constexpr std::uint8_t kLoadBytes[] = {0x55, 0x8b, 0xec, 0x64, 0xa1, 0x00, 0x00, 0x00, 0x00, 0x6a, 0xff, 0x68, 0xc0, 0x4b, 0x67, 0x00};
+constexpr std::uint8_t kLoad2Bytes[] = {0x55, 0x8b, 0xec, 0x64, 0xa1, 0x00, 0x00, 0x00, 0x00, 0x6a, 0xff, 0x68, 0xe0, 0x4b, 0x67, 0x00};
+constexpr std::uint8_t kSaveBytes[] = {0x55, 0x8b, 0xec, 0x6a, 0xff, 0x68, 0x78, 0x4b, 0x67, 0x00, 0x64, 0xa1, 0x00, 0x00, 0x00, 0x00};
+
+InitFn g_init = nullptr;
+SaveFn g_load = nullptr, g_load2 = nullptr, g_save = nullptr;
+
+void __cdecl hook_init() {
+    const std::uintptr_t from = reinterpret_cast<std::uintptr_t>(_ReturnAddress());
+    g_init();
+    if (from >= kStartFirst && from < kStartLast) on_new_game();
+}
+
+// The name is copied first: the game's buffer is not ours to trust after the call.
+int loaded(SaveFn original, char* file) {
+    const std::string name = file ? file : "";
+    const int r = original(file);
+    if (r >= 0) on_loaded(name.c_str());
+    return r;
+}
+int __fastcall hook_load(char* file) { return loaded(g_load, file); }
+int __fastcall hook_load2(char* file) { return loaded(g_load2, file); }
+
+int __fastcall hook_save(char* file) {
+    const std::string name = file ? file : "";
+    const int r = g_save(file);
+    if (r >= 0) on_saved(name.c_str());
+    return r;
+}
+
 struct Site {
     std::uintptr_t at;
     const std::uint8_t* bytes;   // what the build has there
@@ -215,6 +257,8 @@ const Site kSites[] = {
     SITE(kStep, kStepBytes, &hook_step, &g_step),         SITE(kFrame, kFrameBytes, &hook_frame, &g_frame),
     SITE(kStore, kStoreBytes, &hook_store, &g_store),     SITE(kAdd, kAddBytes, &hook_add, &g_add),
     SITE(kIcon, kIconBytes, &hook_icon, &g_icon),         SITE(kWindow, kWindowBytes, &hook_window, &g_window),
+    SITE(kInit, kInitBytes, &hook_init, &g_init),         SITE(kSave, kSaveBytes, &hook_save, &g_save),
+    SITE(kLoad, kLoadBytes, &hook_load, &g_load),         SITE(kLoad2, kLoad2Bytes, &hook_load2, &g_load2),
 };
 #undef SITE
 

@@ -25,7 +25,22 @@ const HANDLE g_started = CreateEventW(nullptr, TRUE, FALSE, nullptr);   // manua
 std::vector<mods::Mod> g_list;
 std::vector<std::unique_ptr<script::Mod>> g_scripts;
 std::string g_room;            // the room of the last tick ("" = none)
+std::string g_last_room;       // the last room there was: a room_enter's prev_room (the scene is 0 between two rooms of an intro)
 events::FlagWatch g_watch;     // g_flags at the last tick
+Sidecar g_sidecar;             // the session's: read with a load, written with a save, emptied by a new game
+enum class Session { None, NewGame, Load } g_session = Session::None;   // its event waits for the next tick
+int g_session_slot = -1;
+
+// "yso_05.bin" -> 5: the file number CleriaCore calls the slot; -1 for a name without one.
+int slot_of(const char* file) {
+    int slot = -1;
+    for (const char* p = file; *p; ++p)
+        if (*p >= '0' && *p <= '9') slot = (slot < 0 ? 0 : slot * 10) + (*p - '0');
+        else if (slot >= 0) break;
+    return slot;
+}
+
+fs::path save_file(const char* file) { return dir() / "saves" / fs::path(file).filename(); }
 
 }  // namespace
 
@@ -64,20 +79,61 @@ void start(bool hooked) {
     });
 }
 
+Sidecar& sidecar() { return g_sidecar; }
+bool session_pending() { return g_session != Session::None; }
+
+// The storage is the new session's at once; the event is the next tick's, after that session's room_enter
+// (CleriaCore's order, LUA_API.md section 3).
+void on_new_game() {
+    g_sidecar.clear();
+    g_session = Session::NewGame;
+    g_session_slot = -1;
+    log("[save] new game");
+}
+
+void on_loaded(const char* file) {
+    g_sidecar = read_sidecar(save_file(file));
+    g_session = Session::Load;
+    g_session_slot = slot_of(file);
+    log("[save] loaded %s (slot %d)", file, g_session_slot);
+}
+
+void on_saved(const char* file) {
+    const bool ok = write_sidecar(save_file(file), g_sidecar);
+    log("[save] saved %s (slot %d)%s", file, slot_of(file), ok ? "" : ": its .cleria could not be written");
+    events::Event e;
+    e.kind = events::Kind::Save;
+    e.room = host().room();
+    e.slot = slot_of(file);
+    events::bus().emit(e);
+}
+
 void on_tick() {
     if (WaitForSingleObject(g_started, 0) != WAIT_OBJECT_0 || g_scripts.empty()) return;
     script::Host& h = host();
     const std::string room = h.room();
-    if (room != g_room) {
+    const bool session = g_session != Session::None && !room.empty();   // a session starts with its first room
+    if (room != g_room || session) {
         if (!room.empty()) {
             events::Event e;
             e.kind = events::Kind::RoomEnter;
             e.room = room;
-            e.prev_room = g_room;
+            e.prev_room = g_last_room;
             events::bus().emit(e);
+            g_last_room = room;
         }
         if (g_room.empty()) g_watch.primed = false;   // into a game from the title: a baseline, not 512 changes
         g_room = room;
+    }
+    if (session) {
+        g_watch.primed = false;   // another save's flags: a baseline too
+        events::Event e;
+        e.kind = g_session == Session::NewGame ? events::Kind::NewGame : events::Kind::Load;
+        e.room = room;
+        e.slot = g_session_slot;
+        e.character = h.character();
+        g_session = Session::None;
+        events::bus().emit(e);
     }
     if (!room.empty()) g_watch.diff(h.flags(), events::bus(), room);
     for (auto& m : g_scripts) m->on_tick();

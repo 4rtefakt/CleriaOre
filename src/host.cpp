@@ -1,6 +1,6 @@
 // What a mod's script reaches of the retail game: cleria::script::Host over the memory of yso_win.exe
 // (the build hooks.cpp checks; nothing here is read unless the hooks went in). What is not backed yet
-// keeps script::Host's harmless default: the setters, storage, drawing, the page widgets.
+// keeps script::Host's harmless default: the setters, settings, drawing, the page widgets.
 #include <algorithm>
 #include <cstdint>
 #include <cstdio>
@@ -68,6 +68,8 @@ struct RetailHost : script::Host {
         e.source = source;
         events::bus().emit(e);
     }
+    bool save_ready() override { return !session_pending(); }
+    std::map<std::string, std::string>* save_storage(const std::string& mod) override { return &sidecar().mod[mod]; }
     void refresh() override {
         if (in_game()) at<std::int32_t>(kRecalc) |= 0x75;
     }

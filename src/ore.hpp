@@ -4,10 +4,12 @@
 //     cleriaore.ini    [cleria.mods] UseMods / Order / Active, as in CleriaCore's cleria.ini
 //     cleriaore.log    this session's log
 //     mods/            the mods: folders, .zip and .cleriamod (CleriaCore's samples/mods/README.md)
+//     saves/           yso_NN.cleria: what the mods keep with the save yso_NN.bin (cleria::Sidecar)
 #pragma once
 #include <filesystem>
 
 #include "cleria/modscript.hpp"
+#include "cleria/sidecar.hpp"
 
 namespace ore {
 
@@ -23,5 +25,11 @@ void on_frame();                       // one frame was rendered (the game threa
 // A grant of the game's script VM, before it happens (hooks.cpp fills `q` but its flags): the mods'
 // filters answer in load order, and a store that passes with a higher item count raises item_obtained.
 cleria::GrantDecision on_grant(cleria::GrantQuery q);
+// The sessions (the game thread; `file` is the save's name as the game passes it, "yso_05.bin"):
+void on_new_game();                    // the title started a game: the flags were just reset
+void on_loaded(const char* file);      // a save was read into the game
+void on_saved(const char* file);       // a save was written
+cleria::Sidecar& sidecar();            // what the mods keep with this session's save
+bool session_pending();                // a new game / a load whose event was not delivered yet
 
 }  // namespace ore
