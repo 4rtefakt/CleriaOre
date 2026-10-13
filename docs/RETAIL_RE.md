@@ -492,3 +492,16 @@ The notes themselves are gathered in the `yso` repository.
   path from the registry). Seen: the four saves then listed on the Load page, and one loaded by the player.
 - `ore.continue` loads the most recent save of the 64 slots (of the profile, if one is set), by Steam's time for
   each (entry 16, `GetFileTimestamp`). Written, not yet seen working.
+
+## A save without its scene
+
+- **The game's save names its room by number**: the scene's id at `0x76a534` (in the saved block), which the
+  load stages (`0x769fb8`) for the fade's commit. A save written by CleriaCore carries the room's name instead
+  (the block's label at `0x76a3b4`, "S_7000") and 0 for the number: the game loaded all of it and then had no
+  scene to go to, the screen left black with the title's list built again over it. Seen with an Archipelago
+  seed's saves made in CleriaCore.
+- The load's hook now finds the number by that name in the scene table when it is 0, and stages it. Seen: such
+  saves open in their rooms (S_6010, S_7000).
+- `ore.continue` takes the most recent save by the date and time in each save's own header (the save's codec is
+  CleriaCore's `save.cpp`), not by Steam's time for the file, which for an adopted file is the moment it was
+  adopted. Seen: of five saves it took the one of 23:45:40.

@@ -57,6 +57,7 @@ add_library(dinput8 SHARED
   src/log.cpp
   src/files.cpp
   src/hooks.cpp
+  external/CleriaCore/src/cleria/save.cpp   # the save file's codec, for a slot's date (ore.continue)
   src/host.cpp
   src/content.cpp
   src/ui.cpp

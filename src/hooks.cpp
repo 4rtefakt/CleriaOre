@@ -20,6 +20,7 @@
 #include "files.hpp"
 #include "cleria/vfs.hpp"
 #include "ore.hpp"
+#include "cleria/save.hpp"
 #include "ui.hpp"
 
 namespace ore {
@@ -903,7 +904,25 @@ void __cdecl hook_init() {
 int loaded(SaveFn original, char* file) {
     const std::string name = file ? file : "";
     const int r = original(file);
-    if (r >= 0) on_loaded(name.c_str());
+    // A save written by CleriaCore, not by the game, names its room (the block's label at 0x76a3b4: "S_7000") and
+    // leaves the scene's number (0x76a534) at 0; the game stages that number (0x769fb8) and would go nowhere, its
+    // screen left black. The number is found by the name in the scene table and staged.
+    if (r >= 0 && *reinterpret_cast<std::int32_t*>(0x76a534) == 0) {
+        const char* label = reinterpret_cast<const char*>(0x76a3b4);
+        const std::string room(label, strnlen(label, 16));
+        const char* recs = *reinterpret_cast<const char**>(0x74c124);
+        const int count = recs ? *reinterpret_cast<std::int32_t*>(0x74e230) : 0;
+        for (int i = 0; room.size() >= 6 && i < count && i < 4096; ++i) {
+            const char* rec = recs + std::size_t(i) * 0x1c8;
+            const std::string path(rec + 4, strnlen(rec + 4, 0xc0));
+            if (path.size() < room.size() + 1 || _strnicmp(path.c_str() + path.size() - room.size() - 1, room.c_str(), room.size()) != 0) continue;
+            const int scene = *reinterpret_cast<const std::uint16_t*>(rec);
+            *reinterpret_cast<std::int32_t*>(0x76a534) = scene;
+            *reinterpret_cast<std::int32_t*>(0x769fb8) = scene;
+            log("[save] %s names its room (%s) and not its scene: scene %d", name.c_str(), room.c_str(), scene);
+            break;
+        }
+    }    if (r >= 0) on_loaded(name.c_str());
     return r;
 }
 int __fastcall hook_load(char* file) { return loaded(g_load, file); }
@@ -1161,20 +1180,24 @@ bool profile_storage() {
     log("[save] Steam's storage wrapped for the save profiles");
     return true;
 }
-// The most recent save of the 64 slots (of the save profile, if one is set), by Steam's own time for each
-// (ISteamRemoteStorage entry 16, GetFileTimestamp); -1: none, or no Steam.
+// The most recent save of the 64 slots (of the save profile, if one is set), by the date and time each save
+// carries in its own header (what the Load page shows): Steam's time for a file is when Steam was given it, which
+// for an adopted save is now. -1: none, or no Steam.
 int latest_slot() {
     void* rs = g_hooked ? *reinterpret_cast<void**>(0x7493b8) : nullptr;
     if (!rs || !profile_storage()) return -1;
-    void** vt = *reinterpret_cast<void***>(rs);
     int best = -1;
-    std::int64_t newest = 0;
+    std::string newest;
+    std::vector<std::uint8_t> raw(0x4000);
     for (int i = 0; i < 64; ++i) {
         char name[16];
         std::snprintf(name, sizeof name, "yso_%02d.bin", i);
         if (!rs_exists(rs, nullptr, name)) continue;
-        std::string h;
-        const std::int64_t at = reinterpret_cast<std::int64_t(__thiscall*)(void*, const char*)>(vt[16])(rs, profiled(name, h));
+        const int got = rs_read(rs, nullptr, name, raw.data(), int(raw.size()));
+        const auto rec = got > 0 ? cleria::SaveRecord::decode({raw.data(), std::size_t(got)}) : std::nullopt;
+        if (!rec) continue;
+        const cleria::SaveMeta m = cleria::meta_of(*rec);                  // "MM/DD/YYYY", "HH:MM:SS"
+        const std::string at = m.date.size() == 10 ? m.date.substr(6, 4) + m.date.substr(0, 5) + m.time : m.date + m.time;
         if (best < 0 || at > newest) { best = i; newest = at; }
     }
     return best;
