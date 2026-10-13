@@ -67,6 +67,22 @@ const auto stop_bgm = reinterpret_cast<void(__fastcall*)(int fade)>(0x432fc0);  
 const auto sync_gauges = reinterpret_cast<void(__cdecl*)()>(0x4fa0e0);                        // the HUD's HP and MP gauges take the record's values
 const auto play_sound = reinterpret_cast<void(__fastcall*)(int id, int volume)>(0x43a040);    // a sound of EFFECTDEF, 0x400 = its own volume
 
+// FUN_00434970(ECX name, EDX 0; an argument block, a parent; the caller pops): a script's StartScript (0xb4). The name
+// is one of the room's scripts, or "@name" for one of s_common. It answers 0 when a script of that name already
+// runs. The new script runs its first burst at once.
+__declspec(naked) void* __cdecl start_script(const char* /*name*/) {
+    __asm {
+        mov  ecx, dword ptr [esp + 4]
+        xor  edx, edx
+        push 0
+        push 0
+        mov  eax, 0x434970
+        call eax
+        add  esp, 8
+        ret
+    }
+}
+
 // FUN_00475710(ECX cast, EDX yaw in degrees; x, y, z, a stat argument; the caller pops): a monster of CASTINFO's
 // row `cast` built as the game's own spawners build one (the factory, the stats of its ENEMYINFO record).
 __declspec(naked) char* __cdecl spawn_monster(int /*cast*/, int /*yaw*/, const float* /*pos*/) {
@@ -405,6 +421,7 @@ struct RetailHost : script::Host {
         auto arg = [&](std::size_t i, double d = 0.0) { return i < n.size() ? n[i] : d; };
         if (op == "pause") { set_pause(mod, arg(0) != 0); return true; }          // these two hold with or without a game
         if (op == "speed") { set_speed(mod, arg(0, 1.0)); return true; }
+        if (op == "load") return load_slot(int(arg(0, -1)));                      // from the title too
         if (!in_game()) return false;
         char* player = at<char*>(kPlayer);
         const bool alive = at<float>(kHp) >= 1;
@@ -662,6 +679,10 @@ struct RetailHost : script::Host {
             *out = {double(actor_id(a))};
             return true;
         }
+        if (op == "puppet_effect") {                                              // (puppet, id, fwd, angle, voff, scale, attach)
+            char* a = find_puppet(int(arg(0, -1)));
+            return a && n.size() >= 7 && ore::puppet_effect(a, n.data() + 1);
+        }
         if (op == "puppet_set" || op == "puppet_remove") {
             char* a = find_puppet(int(arg(0, -1)));
             if (!a) return false;
@@ -734,6 +755,48 @@ struct RetailHost : script::Host {
             at<float>(0x769f24) = std::clamp(float(arg(2)), 0.0f, 1.0f);
             at<float>(0x769f28) = 1.0f / float((std::max)(1.0, arg(3, 20.0)));
             return true;
+        }
+        // The game-over menu's two rows are two functions without arguments (gameflow_re/DEATH_RETRY.md): Retry
+        // (0x4276b0: the continue snapshot back, the scene it was taken in) and Return to Title (0x427750). Each
+        // starts its own fade-out and scene change.
+        if (op == "retry") {
+            if (alive) return false;                                              // only once the player is down
+            reinterpret_cast<void(__cdecl*)()>(0x4276b0)();
+            return true;
+        }
+        if (op == "to_title") { reinterpret_cast<void(__cdecl*)()>(0x427750)(); return true; }
+        // The camera's script operations are plain writes (event_re/CAMERA_OPS.md). Shake (0xCF): three amplitudes at
+        // 0x76a594 and a frame count at 0x76a5ac. Scroll_MoveTo (0xC3) and Scroll_Return (0xC4): the scroll block at
+        // 0x76a1c0..0x76a1f4, as FUN_0056ec40 and FUN_0056ecd0 fill it.
+        if (op == "cam_shake") {
+            for (std::size_t k = 0; k < 3; ++k) at<float>(0x76a594 + 4 * k) = float(arg(k));
+            at<std::int32_t>(0x76a5ac) = std::clamp(int(arg(3, 20)), 1, 600);
+            return true;
+        }
+        if (op == "cam_look") {                                                   // (x, y, z, frames): the camera's subject; no point: back to the player
+            const int frames = std::clamp(int(arg(3, 30)), 0, 600);
+            const bool to = n.size() >= 3 && std::isfinite(n[0]);
+            at<float>(0x76a1f0) = frames ? 1.0f / float(frames) : 1.0f;
+            if (to) {
+                for (std::size_t k = 0; k < 3; ++k) at<float>(0x76a1d0 + 4 * k) = float(n[k]);
+                at<float>(0x76a1e4) = at<float>(0x76a168);
+                at<float>(0x76a1dc) = at<float>(0x76a160);
+                at<float>(0x76a1e0) = at<float>(0x76a164);
+                at<float>(0x76a1ec) = 0.0f;
+                at<float>(0x76a1e8) = 1.0f;
+            } else {
+                at<float>(0x76a1e4) = at<float>(0x76a1cc);
+                at<float>(0x76a1dc) = at<float>(0x76a1c4);
+                at<float>(0x76a1e0) = at<float>(0x76a1c8);
+                at<float>(0x76a1e8) = 0.0f;
+            }
+            at<std::int32_t>(0x76a1f4) = 0;
+            if (!frames) at<std::uint8_t>(0x76a1c0) = 1;
+            return true;
+        }
+        if (op == "script_run") {                                                 // (name): as a script's StartScript
+            if (text.empty() || text.size() > 0x1f) return false;
+            return start_script(text.c_str()) != nullptr;
         }
         if (op == "tune") {                                                       // (key, factor): speed 0, jump 1; the rest is not backed
             const int k = int(arg(0, -1));

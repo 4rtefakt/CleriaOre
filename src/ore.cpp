@@ -405,6 +405,15 @@ void on_bullet(const void* owner, int kind, const std::uint32_t* a) {
              .with("d", f(11)).with("e", f(12)).with("f", f(13)).with("g", f(14)).with("h", f(15)),
          host().room());
 }
+// The player's animation script makes an effect: player_effect, with what a puppet needs to show the same one.
+void on_effect(const void* actor, const std::int32_t* a) {
+    if (WaitForSingleObject(g_started, 0) != WAIT_OBJECT_0 || g_scripts.empty()) return;
+    if (!actor || actor != *reinterpret_cast<void**>(0x74c09c)) return;
+    auto f = [&](int i) { float v; std::memcpy(&v, &a[i], 4); return double(v); };
+    emit(events::Event::named("player_effect").with("id", a[0]).with("fwd", f(1)).with("angle", f(2)).with("voff", f(3)).with("scale", f(4))
+             .with("attach", a[5]),
+         host().room());
+}
 int on_blessing(int index) {
     if (WaitForSingleObject(g_started, 0) != WAIT_OBJECT_0 || g_scripts.empty()) return index;
     const std::string room = host().room();

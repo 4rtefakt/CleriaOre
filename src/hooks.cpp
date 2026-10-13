@@ -80,6 +80,18 @@ int __fastcall hook_scene(int scene, int force) {
 constexpr std::uintptr_t kBless = 0x568d5d, kVmNext = 0x5664c9;   // kVmNext: where every case of 0xAF ends
 constexpr std::uint8_t kBlessBytes[] = {0x83, 0xf8, 0x21, 0x0f, 0x87, 0xb7, 0x4d, 0x00, 0x00};
 void* g_bless = nullptr;
+// FUN_004496f0(actor, args), stdcall: an animation script's anime_GenerateEffect (aso_re/ASOVM.md, funcid 0x25). The
+// ten argument words: the effect id, then as floats the distance ahead, the angle, the height and the scale, the
+// attach mode, and four more the factory takes as they are.
+constexpr std::uintptr_t kEffect = 0x4496f0;
+constexpr std::uint8_t kEffectBytes[] = {0x55, 0x8b, 0xec, 0x83, 0xe4, 0xf8, 0x83, 0xec, 0x40, 0x56, 0x8b, 0x75, 0x0c, 0x57, 0x8b, 0x7d};
+using EffectFn = void(__stdcall*)(void* actor, std::int32_t* args);
+EffectFn g_effect = nullptr;
+bool g_effect_shown = false;            // an effect of puppet_effect is being made
+void __stdcall hook_effect(void* actor, std::int32_t* args) {
+    if (!g_effect_shown) on_effect(actor, args);
+    g_effect(actor, args);
+}
 // FUN_0045a2f0, GoActor's update (its vtable's third entry): a jump to the actor's handler, by its index at +0x120.
 // An actor a mod holds is not updated: it stays where and as it was put. It is still drawn: a handler hands its
 // actor to the frame's draw list itself, so the hook does that part (FUN_00473540) in the handler's place.
@@ -639,6 +651,7 @@ const Site kSites[] = {
     SITE(kRecompute, kRecomputeBytes, &hook_recompute, &g_recompute), SITE(kPart, kPartBytes, &hook_part, &g_part),
     SITE(kActorUpdate, kActorUpdateBytes, &hook_actor_update, &g_actor_update), SITE(kScene, kSceneBytes, &hook_scene, &g_scene),
     SITE(kBless, kBlessBytes, &hook_bless, &g_bless),     SITE(kBullet, kBulletBytes, &hook_bullet, &g_bullet),
+    SITE(kEffect, kEffectBytes, &hook_effect, &g_effect),
     SITE(kSpawn, kSpawnBytes, &hook_spawn, &g_spawn),       SITE(kTouch, kTouchBytes, &hook_touch, &g_touch),
 };
 #undef SITE
@@ -696,6 +709,25 @@ bool show_bullet(const double* n) {
     g_showing = true;
     fire_bullet(player, int(n[0]), args);
     g_showing = false;
+    return true;
+}
+
+// As the Load page's "Yes": the slot byte, then the read, which stages the loaded game's scene itself.
+bool load_slot(int slot) {
+    if (!g_hooked || slot < 0 || slot > 63) return false;
+    char file[32];
+    std::snprintf(file, sizeof file, "yso_%02d.bin", slot);
+    *reinterpret_cast<std::uint8_t*>(0x74ac3e) = std::uint8_t(slot);
+    return hook_load(file) >= 0;
+}
+
+bool puppet_effect(void* actor, const double* n) {
+    if (!g_hooked || !actor) return false;
+    auto bits = [](double v) { const float f = float(v); std::int32_t u; std::memcpy(&u, &f, 4); return u; };
+    std::int32_t args[10] = {std::int32_t(n[0]), bits(n[1]), bits(n[2]), bits(n[3]), bits(n[4]), std::int32_t(n[5]), 0, 0, 0, 0};
+    g_effect_shown = true;
+    g_effect(actor, args);
+    g_effect_shown = false;
     return true;
 }
 

@@ -170,3 +170,33 @@ The notes themselves are gathered in the `yso` repository.
 - **The fader** is plain memory: the two colours at `0x769f30` / `0x769f34`, the current alpha at `0x769f1c`,
   the target at `0x769f24`, the step a frame at `0x769f28`. Driven: a purple veil to 0.6 over half a second,
   then back to 0.
+
+## Sessions
+
+- **Retry and Return to Title are two functions without arguments**, the game-over menu's rows: `0x4276b0`
+  (the continue snapshot back over the save block, and the scene it was taken in) and `0x427750`. Each starts
+  its own fade-out and scene change. Driven: killed in S_1099, Retry brought the game back to S_2013 in play
+  at full HP; Return to Title gave the title.
+- **Loading a slot** is the Load page's "Yes": the slot byte at `0x74ac3e`, then `FUN_0042f5e0("yso_NN.bin")`,
+  which reads the save and stages its scene itself. The file name is bare; the game resolves it (the Steam
+  Cloud included). Driven from play (S_1001 to the save's S_2013) and from the title.
+
+## The camera
+
+- **Shake** (a script's 0xCF) is three float amplitudes at `0x76a594` and an int frame count at `0x76a5ac`.
+- **The camera's subject** (Scroll_MoveTo 0xC3, Scroll_Return 0xC4) is the block `0x76a1c0..0x76a1f4`, which
+  `FUN_0056ec40` and `FUN_0056ecd0` only fill: the target point at `0x76a1d0`, where it starts from at
+  `0x76a1dc` / `0x76a1e4` (copied from the live target `0x76a160` / `0x76a168`, or from the saved default
+  `0x76a1c4` / `0x76a1cc` to go back), the step at `0x76a1f0`, the progress at `0x76a1ec`, the direction at
+  `0x76a1e8` (1 to the point, 0 back), a done byte at `0x76a1c0`.
+
+## Effects
+
+- **`FUN_004496f0(actor, args)`, stdcall,** is an animation script's anime_GenerateEffect: ten words, the
+  effect id, then as floats the distance ahead, the angle, the height and the scale, then the attach mode
+  and four words the factory takes as they are. Hooked: the player's raise `player_effect`. `puppet_effect`
+  calls it again with a puppet as the actor. Driven as Hugo in S_1099: his skill (the middle mouse button,
+  `102`) raised effects 155 and 134; replayed on a Yunica puppet, both showed on her. His plain shots raise
+  none (they are bullets).
+- **A script is started** by `FUN_00434970(ecx name, edx 0; an argument block, a parent)`, the caller popping
+  the two: a script's StartScript (0xb4). `script.run` calls it; not driven.

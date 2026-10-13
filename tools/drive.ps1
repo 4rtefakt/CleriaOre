@@ -4,8 +4,9 @@
 #   -cmd "name args"  a cleria.command
 #   -shot file.png    the game's window
 #   -log N            the last N lines of cleriaore.log
+#   -load N           load save slot N (0-based) from the title, through the probe mod's `lua` command
 #   -stop             close the game
-param([switch]$start, [string]$seq = "", [string]$cmd = "", [string]$shot = "", [int]$log = 0, [switch]$stop, [int]$wait = 0)
+param([int]$load = -1, [switch]$start, [string]$seq = "", [string]$cmd = "", [string]$shot = "", [int]$log = 0, [switch]$stop, [int]$wait = 0)
 $g = "D:\SteamLibrary\steamapps\common\Ys Origin"; $d = "$g\cleriaore\drive"
 New-Item -ItemType Directory -Force $d | Out-Null
 if ($start) {
@@ -17,6 +18,7 @@ if ($start) {
         Start-Sleep -Seconds 14
     }
 }
+if ($load -ge 0) { if ($start) { Start-Sleep -Seconds 5 }; Set-Content "$d\cmd.tmp" "lua cleria.game.load($load)"; Move-Item "$d\cmd.tmp" "$d\cmd.txt" -Force; Start-Sleep -Seconds 9 }
 foreach ($step in $seq.Split(",", [StringSplitOptions]::RemoveEmptyEntries)) {
     $k, $ms = $step.Split(":")
     if ($k -eq "wait") { Start-Sleep -Milliseconds ([int]$ms); continue }

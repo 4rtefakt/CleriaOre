@@ -38,6 +38,9 @@ void set_exp_factor(float f);          // hooks.cpp: the game's own EXP rate, wh
 int on_damage(bool dealt, int value, const void* victim, const void* attacker, const void* source);
 // A bullet is being made (FUN_00593550): `args` are its 17 stack words (the effect, &pos, &dir, f0..f12, out).
 void on_bullet(const void* owner, int kind, const std::uint32_t* args);
+void on_effect(const void* actor, const std::int32_t* args);                      // an animation script makes an effect (FUN_004496f0)
+bool puppet_effect(void* actor, const double* n);                                // hooks.cpp: (id, fwd, angle, voff, scale, attach) on that actor
+bool load_slot(int slot);                                                        // hooks.cpp: the Load page's own read of a save, 0-based
 bool show_bullet(const double* n);                                               // hooks.cpp: the 19 numbers of a player_bullet event, as a bullet that hurts nobody
 int on_blessing(int index);                                                      // a blessing's effect is about to be given: -> the index, -1 = none
 int on_part_damage(int value, const void* victim, const void* source);           // the same for a hit on a map object (a boss's part)

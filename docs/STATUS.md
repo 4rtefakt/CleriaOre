@@ -67,16 +67,19 @@ hooked and the log says so.
   `ai`; not the look), `world.snapshot` and `world.apply`, `world.spawn` for any monster cast.
 - `player.equipment` and `equip`, `player.status` and `set_status` (without the hit's show), `audio.music` and
   `stop_music`, `screen.fade` and `flash`.
+- Sessions: `game.load` (from the title too), `game.retry`, `game.to_title`. The camera: `camera.shake`,
+  `camera.look_at`. Effects: `player_effect` and `world.puppet_effect`. `script.run`, a script of the game's.
 - Bullets: `player_bullet` for each of the player's, and `world.show_bullet`, the same bullet again for show.
 - The blessing shop: `blessing_bought`, and `cleria.shop.add_filter`'s Buy answer (another effect, or none).
 - The world's filters: `"spawn"` (the multipliers and "suppress"; not another cast or level) with
   `enemy_spawned`, and `"exit"` (another room, or "suppress"; no `index` or `door`).
 
 What does not exist yet, so a script's call answers its default: monster variants
-(`content.define_monster`), a puppet's effects (`puppet_effect`, `glow`, `aura`), the camera's writes, the
-exits, `new_game` / `load` / `retry`, the shop filter's prices and rows,
-item icons, `unlock_character`, the save profiles, `text*.ini`, and the
-load order in the game's panel. Co-op needs most of the first line.
+(`content.define_monster`) and a variant's look, a puppet's `glow`, `aura`, `hittable` and `target`, the
+camera's distance and field of view (`camera.set`, `reset`), `hud.show`, the exits (`game.exits`,
+`take_exit`), `new_game`, a sound or music file of the mod's own, `player.set_look`, the shop filter's prices
+and rows, item icons, `unlock_character`, the save profiles, `text*.ini`, and the load order in the game's
+panel.
 
 The scripted mods of `cleriacore-mods` (17 with the probes) all start and run a fight and room changes without
 a script error. **Co-op runs as host against a fake teammate** (`tools/coop_bot.py`): the join, the teammate's
