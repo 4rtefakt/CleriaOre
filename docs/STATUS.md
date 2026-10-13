@@ -69,6 +69,8 @@ hooked and the log says so.
   `stop_music`, `screen.fade` and `flash`.
 - Sessions: `game.load` (from the title too), `game.retry`, `game.to_title`. The camera: `camera.shake`,
   `camera.look_at`. Effects: `player_effect` and `world.puppet_effect`. `script.run`, a script of the game's.
+- The room's doors: `game.exits` and `take_exit`. The look: `player.set_look`, and `world.form`'s `scale` and
+  `tint` (untested).
 - Bullets: `player_bullet` for each of the player's, and `world.show_bullet`, the same bullet again for show.
 - The blessing shop: `blessing_bought`, and `cleria.shop.add_filter`'s Buy answer (another effect, or none).
 - The world's filters: `"spawn"` (the multipliers and "suppress"; not another cast or level) with
@@ -76,15 +78,15 @@ hooked and the log says so.
 
 What does not exist yet, so a script's call answers its default: monster variants
 (`content.define_monster`) and a variant's look, a puppet's `glow`, `aura`, `hittable` and `target`, the
-camera's distance and field of view (`camera.set`, `reset`), `hud.show`, the exits (`game.exits`,
-`take_exit`), `new_game`, a sound or music file of the mod's own, `player.set_look`, the shop filter's prices
+camera's distance and field of view (`camera.set`, `reset`), `hud.show`, `new_game`, a sound or music file of the mod's own, the shop filter's prices
 and rows, item icons, `unlock_character`, the save profiles, `text*.ini`, and the load order in the game's
 panel.
 
 The scripted mods of `cleriacore-mods` (17 with the probes) all start and run a fight and room changes without
-a script error. **Co-op runs as host against a fake teammate** (`tools/coop_bot.py`): the join, the teammate's
-puppet with its name, the party list, chat, the host's pose and snapshots going out. Not tried: two real games,
-a guest on retail, the monsters of a room shared both ways, a boss.
+a script error. **Co-op runs against a fake teammate** (`tools/coop_bot.py`), as host (the join, the
+teammate's puppet with its name, the party list, chat, the pose and snapshots going out) and as guest (the
+host's snapshots place and hold the room's monsters, the others fall). Not tried: two real games, hits and
+kills passed between them, a boss.
 
 How to test a build by hand, and the drive that steers the game for unattended tests: [TEST_PROTOCOL.md](TEST_PROTOCOL.md).
 

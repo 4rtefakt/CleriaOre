@@ -200,3 +200,14 @@ The notes themselves are gathered in the `yso` repository.
   none (they are bullets).
 - **A script is started** by `FUN_00434970(ecx name, edx 0; an argument block, a parent)`, the caller popping
   the two: a script's StartScript (0xb4). `script.run` calls it; not driven.
+
+## Doors
+
+- **A room's doors are the RegionEntry pool**: `DAT_0076a2b4`, `DAT_0076a2b8` records of 0x2a0. A live one has
+  its byte +4 set; +0x38 & 2 means shut; the box is at +8..+0x1c round the point +0x20; +0x3c is the scene it
+  leads to and +0x44 the 0x194-byte descriptor of the arrival. Driven in S_2013: two doors, to S_2004 and
+  S_2080. Backs `game.exits`.
+- **Taking a door** is what the trigger `FUN_0042cf00` does when the player stands in one: the fade's target
+  to 1 (`0x769f24`), its current alpha and hold to 0, the door's scene into `0x769fb8` and `0x76a538`, its
+  descriptor into `0x769fbc`. The fade's end commits the change. `game.take_exit` makes those writes, without
+  the walk through the doorway.

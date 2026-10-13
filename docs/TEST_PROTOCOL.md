@@ -77,3 +77,10 @@ shows Bot's HP at the top right, and a card reads "Bot: hello from the bot". The
 host's room and pose, and the room's snapshots.
 
 ![The retail game hosting, the bot as Yunica](coop-retail.png)
+
+The other way round, the bot hosts and the game joins (`Auto="join"`): start `python tools/coop_bot.py host 75`
+first, then the game, and go to S_1001. The bot has the lowest id, so the room's monsters are its own: its
+snapshots line two or three of them up beside the entrance, held, the others fall, and its Yunica walks
+round the player.
+
+![The retail game as a guest: the host's monsters lined up, held](coop-retail-guest.png)

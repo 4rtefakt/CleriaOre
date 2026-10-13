@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <map>
 #include <set>
@@ -597,6 +598,10 @@ struct RetailHost : script::Host {
             in<float>(a, kADef) *= mul(3);
             in<float>(a, 0xb0) *= mul(4);
             in<std::int32_t>(a, 0xc4) = int(float(in<std::int32_t>(a, 0xc4)) * mul(5));
+            // The look: what the draw takes from the actor (FUN_004740e0), its colour at +0x148 (ARGB) and its scale at
+            // +0x248. [H] a monster's own handler may write them again; a held one keeps them.
+            if (arg(6, -1) > 0) in<float>(a, 0x248) = float(std::clamp(arg(6), 0.2, 5.0));
+            if (arg(7, -1) >= 0) in<std::uint32_t>(a, 0x148) = 0xff000000u | (std::uint32_t(arg(7)) & 0xffffffu);
             if (std::isfinite(arg(8, NAN))) hold(a, arg(8) == 0);
             return true;
         }
@@ -797,6 +802,51 @@ struct RetailHost : script::Host {
         if (op == "script_run") {                                                 // (name): as a script's StartScript
             if (text.empty() || text.size() > 0x1f) return false;
             return start_script(text.c_str()) != nullptr;
+        }
+        // The room's doors are the RegionEntry pool (warp_re/TRANSIT.md §1): DAT_0076a2b4, DAT_0076a2b8 records of
+        // 0x2a0; a live one has its byte +4 set, +0x38 & 2 means shut, +0x3c is the scene it leads to and +0x44 the
+        // 0x194-byte descriptor of the arrival. `exits` gives each door's room number, 0 for one that is shut or
+        // leads nowhere known.
+        if (op == "exits" || op == "take_exit") {
+            const char* pool = at<const char*>(0x76a2b4);
+            const int count = pool ? at<std::int32_t>(0x76a2b8) : 0;
+            const char* recs = at<const char*>(0x74c124);
+            const int scenes = at<std::int32_t>(0x74e230);
+            auto entry = [&](int i) { return pool + std::size_t(i) * 0x2a0; };
+            auto room_of = [&](int i) {
+                const char* e = entry(i);
+                const int scene = *reinterpret_cast<const std::int32_t*>(e + 0x3c);
+                if (!e[4] || (std::uint8_t(e[0x38]) & 2) || !recs || scene <= 0 || scene >= scenes) return 0;
+                const std::string path(recs + std::size_t(scene) * 0x1c8 + 4);
+                const std::size_t k = path.find_last_of('_');
+                return k == std::string::npos ? 0 : std::atoi(path.c_str() + k + 1);
+            };
+            if (op == "exits") {
+                if (!out) return false;
+                out->clear();
+                for (int i = 0; i < count && i < 64; ++i) out->push_back(double(room_of(i)));
+                return true;
+            }
+            // As the trigger does when the player stands in the door (FUN_0042cf00, 0x42d0fc..): the fade starts
+            // and the door's scene and descriptor are staged; the fade's end commits the change. Without the
+            // walk-out, and refused where the trigger itself would not fire.
+            const int i = int(arg(0, -1));
+            if (!alive || i < 0 || i >= count || i >= 64 || !room_of(i)) return false;
+            if (at<std::int32_t>(0x76a538) != 0 || flags()[156] != 0 || flags()[129] != 0 || frozen()) return false;
+            const char* e = entry(i);
+            at<float>(0x769f24) = 1.0f;
+            at<std::int32_t>(0x769fb8) = *reinterpret_cast<const std::int32_t*>(e + 0x3c);
+            at<std::int32_t>(0x769f18) = 0;
+            at<float>(0x769f1c) = 0.0f;
+            at<float>(0x769f2c) = 0.0f;
+            std::memcpy(&at<char>(0x769fbc), e + 0x44, 0x194);
+            at<std::int32_t>(0x76a538) = *reinterpret_cast<const std::int32_t*>(e + 0x3c);
+            return true;
+        }
+        if (op == "player_look") {                                                // (scale, glow 0xRRGGBB or -1): the player's own sprite
+            if (std::isfinite(arg(0, NAN))) in<float>(player, 0x248) = float(std::clamp(arg(0), 0.3, 3.0));
+            if (std::isfinite(arg(1, NAN))) in<std::uint32_t>(player, 0x148) = arg(1) < 0 ? 0xffffffffu : (0xff000000u | (std::uint32_t(arg(1)) & 0xffffffu));
+            return true;
         }
         if (op == "tune") {                                                       // (key, factor): speed 0, jump 1; the rest is not backed
             const int k = int(arg(0, -1));
