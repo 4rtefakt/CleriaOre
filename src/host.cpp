@@ -222,6 +222,13 @@ struct RetailHost : script::Host {
     void ui_info(void* list, const std::string& label, const std::string& value, std::uint32_t col, const std::string& desc) override {
         ui::info(*static_cast<ui::List*>(list), label.c_str(), value.c_str(), col, desc.empty() ? nullptr : desc.c_str());
     }
+    void ui_text(void* list, const std::string& text, std::uint32_t col) override { ui::paragraph(*static_cast<ui::List*>(list), text.c_str(), col); }
+    void ui_table(void* list, const std::vector<std::string>& cells, bool header, std::uint32_t col) override {
+        ui::table_row(*static_cast<ui::List*>(list), cells, header, col);
+    }
+    void ui_progress(void* list, const std::string& label, double fraction, const std::string& text, std::uint32_t col) override {
+        ui::progress(*static_cast<ui::List*>(list), label.c_str(), float(fraction), text.c_str(), col);
+    }
     std::map<std::string, std::string>* save_storage(const std::string& mod) override { return &sidecar().mod[mod]; }
     void refresh() override {
         if (in_game()) at<std::int32_t>(kRecalc) |= 0x75;

@@ -347,6 +347,53 @@ inline void info(List& L, const char* label, const char* value, ImU32 value_col 
     text(L.dl, F.body, vpx, {r.b.x - r.pad - 7.0f * S - vs.x, cy - vpx * 0.55f}, value_col, v.c_str());
 }
 
+// ---- what a page shows without a row of its own (a mod's p:text / p:progress / p:table) ------------------
+// A paragraph, wrapped, on a slab: the page itself is pale and a mod's colours are for a dark ground.
+inline void paragraph(List& L, const char* t, ImU32 col = kDesc) {
+    const float px = 16.5f * S, pad = 12.0f * S, w = L.size.x - 28.0f * S, wrap = w - 2.0f * pad;
+    const ImVec2 ts = F.body->CalcTextSizeA(px, FLT_MAX, wrap, t);
+    const ImVec2 a{L.org.x + 7.0f * S, L.org.y + L.y - L.scroll}, b{a.x + w, a.y + ts.y + 2.0f * pad};
+    slab(L.dl, a, b);
+    L.dl->AddText(F.body, px, {a.x + pad, a.y + pad}, col, t, nullptr, wrap);
+    L.y += b.y - a.y + row_gap();
+}
+
+// A bar on a read-only row: `fraction` 0..1 in `col`, `text` over it.
+inline void progress(List& L, const char* label, float fraction, const char* text_over, ImU32 col = kGood) {
+    const RowIo r = row_frame(L, nullptr, false, /*focusable*/false);
+    const float lpx = 17.0f * S, cy = (r.a.y + r.b.y) * 0.5f, x0 = r.a.x + (r.b.x - r.a.x) * 0.42f, x1 = r.b.x - r.pad - 7.0f * S, h = 6.0f * S;
+    text(L.dl, F.serif, lpx, {r.a.x + r.pad + 7.0f * S, cy - lpx * 0.58f}, IM_COL32(190, 196, 212, 255), label);
+    L.dl->AddRectFilled({x0, cy - h}, {x1, cy + h}, IM_COL32(6, 8, 16, 255));
+    const float f = std::clamp(fraction, 0.0f, 1.0f);
+    if (f > 0.0f) {
+        const int v0 = L.dl->VtxBuffer.Size;
+        L.dl->AddRectFilled({x0, cy - h}, {x0 + (x1 - x0) * f, cy + h}, col);
+        ImGui::ShadeVertsLinearColorGradientKeepAlpha(L.dl, v0, L.dl->VtxBuffer.Size, {0, cy - h}, {0, cy + h}, col, (col & 0xFF000000u) | ((col >> 1) & 0x007F7F7Fu));
+    }
+    L.dl->AddRect({x0, cy - h}, {x1, cy + h}, kRowEdge, 0.0f, 0, 1.0f * S);
+    if (*text_over) {
+        const float vpx = 13.5f * S;
+        const ImVec2 ts = text_size(F.medium, vpx, text_over);
+        text_sh(L.dl, F.medium, vpx, {(x0 + x1 - ts.x) * 0.5f, cy - vpx * 0.58f}, kTabOn, text_over);
+    }
+}
+
+// One line of a table: equal columns on a slab; a header line is in the serif with a gold rule under it.
+inline void table_row(List& L, const std::vector<std::string>& cells, bool header, ImU32 col = kValue) {
+    if (cells.empty()) return;
+    const float px = (header ? 16.0f : 15.5f) * S, h = 26.0f * S, w = L.size.x - 28.0f * S;
+    const ImVec2 a{L.org.x + 7.0f * S, L.org.y + L.y - L.scroll}, b{a.x + w, a.y + h};
+    L.dl->AddRectFilled(a, b, header ? IM_COL32(34, 50, 88, 255) : IM_COL32(16, 20, 34, 255));
+    const float x0 = a.x + 12.0f * S, cw = (w - 24.0f * S) / float(cells.size());
+    for (std::size_t i = 0; i < cells.size(); ++i) {
+        L.dl->PushClipRect({x0 + cw * float(i), a.y}, {x0 + cw * float(i + 1) - 6.0f * S, b.y}, true);
+        text(L.dl, header ? F.serif : F.body, px, {x0 + cw * float(i), a.y + (h - px) * 0.42f}, header ? kLabel : col, cells[i].c_str());
+        L.dl->PopClipRect();
+    }
+    L.dl->AddLine({a.x, b.y}, {b.x, b.y}, header ? kRule : kDivider, 1.0f * S);
+    L.y += h;
+}
+
 // The first row of a sub-page: "<  Mods / Hello Lua". OK / click returns true (go back), as Esc does
 // through Page::back.
 inline bool back_row(List& L, const char* parent, const char* title, const char* desc = nullptr) {
@@ -499,6 +546,19 @@ struct Panel {
         return open;
     }
 };
+
+// A window of its own over the game (a mod's cleria.ui.window): the panel's page, band and frame, the title
+// in the band. The rows go below `head`.
+inline void window_frame(ImDrawList* dl, ImVec2 a, ImVec2 b, const char* title, float head) {
+    dl->AddRectFilledMultiColor(a, b, kPageTop, kPageTop, kPageBot, kPageBot);
+    dl->AddRectFilledMultiColor(a, {b.x, a.y + head}, kBandTop, kBandTop, kBandBot, kBandBot);
+    dl->AddLine({a.x, a.y + head}, {b.x, a.y + head}, kGoldDark, 3.0f * S);
+    dl->AddLine({a.x, a.y + head}, {b.x, a.y + head}, kGold, 1.1f * S);
+    dl->AddRect(a, b, kGoldDark, 0.0f, 0, 3.0f * S);
+    dl->AddRect(a, b, kGold, 0.0f, 0, 1.1f * S);
+    const float px = 21.0f * S;
+    text_sh(dl, F.serif_italic, px, {a.x + 20.0f * S, a.y + (head - px) * 0.42f}, kTabOn, title);
+}
 
 // Bottom-centre: a notice card over the game.
 inline void toast(ImDrawList* dl, float w, float h, const char* head, const char* body) {
