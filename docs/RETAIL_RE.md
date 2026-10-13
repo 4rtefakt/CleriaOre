@@ -296,7 +296,10 @@ The notes themselves are gathered in the `yso` repository.
 - ENEMYAI.md gives a monster a target override at +0x888 (the player when 0). Writing a puppet's actor there
   for every monster of S_1001 (casts 14 and 19), with the puppet a step from one of them and the player far
   off, moved nothing in eight seconds: these brains find their prey by the player's own pointer and distance.
-  **Open:** which casts read +0x888. A puppet stays out of the monsters' reach.
+  Read again in the decompiler's output: 75 functions read +0x888, most monster brains among them (M120,
+  M140, M160 ... by `names.csv`), and they take from it only the other actor's heading (+0x308) and height
+  (+0x318), with the player as the fallback; the distance they act on is still measured to the player. It is
+  not a target to chase. A puppet stays out of the monsters' reach.
 
 ## Music files
 

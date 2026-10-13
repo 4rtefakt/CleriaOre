@@ -46,6 +46,20 @@ Play normally with only the mods you would really use. What to watch for: a hitc
 a monster that does not die at 0 HP, a level-up or an equipment change that gives odd numbers, a crash
 on a boss's death.
 
+## 5. What only a person can check
+
+The drive cannot hear, and since the screen is shared it no longer looks. These were made to work by the log
+alone:
+
+1. **Music.** With a mod that has `files/music/YSO_004.ogg`, the first rooms (S_1001) should play that file in
+   place of the game's. `cleria.audio.music("file.ogg")` from a mod should start that file, and
+   `cleria.audio.music(-1)` bring the room's own music back. `cleria.audio.se_file("x.wav")` should play a WAV.
+2. **A statue's line.** With Chest Swap on, cleanse the statue of S_1009 on a new game: the narration should be
+   the sample's two lines, not the game's one.
+3. **The load order in the panel.** F1 > Mods, the "Load order" section at the bottom: Left / Right on a row
+   should move the mod, and the order should be the manager's after a restart.
+4. **`player.equip`.** From a mod, equip another owned armor: the Equip page and the stats should follow.
+
 ## The drive
 
 For tests without a person at the keyboard, the loader can be steered from outside. Start the game with
