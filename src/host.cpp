@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <map>
 #include <set>
 #include <windows.h>
 #include <shellapi.h>
@@ -301,6 +302,49 @@ struct RetailHost : script::Host {
         if (on) held_set().insert(a);
         else held_set().erase(a);
     }
+    static std::map<const void*, std::string>& spawned_by() { static std::map<const void*, std::string> m; return m; }   // world.spawn's, until world_tick
+    // The monsters built since the last step: each passes the mods' "spawn" filter once (the multipliers of its
+    // numbers, or "suppress": it is removed), then enemy_spawned. The filter comes after the game built the
+    // monster, so it cannot change its cast or its level.
+    static void new_monsters() {
+        static std::set<int> known;
+        static std::int32_t room = 0;
+        if (room != at<std::int32_t>(0x76b91c + 4 * kFlagScene)) { known.clear(); spawned_by().clear(); room = at<std::int32_t>(0x76b91c + 4 * kFlagScene); }
+        const int n = at<std::int32_t>(kActorCount);
+        for (int i = 0; i < n && i < 256; ++i) {
+            char* a = actor_at(i);
+            if (!monster(a) || !known.insert(actor_id(a)).second) continue;
+            const float* p = &in<float>(a, kAPos);
+            if (world_on("spawn")) {
+                script::WorldQuery q;
+                q.kind = "spawn";
+                q.num = {{"cast", double(in<std::int32_t>(a, kACast))}, {"level", double(in<std::int32_t>(a, kALevel))}, {"id", double(actor_id(a))},
+                         {"x", double(p[0])}, {"y", double(p[1])}, {"z", double(p[2])}, {"group", 0.0}};
+                const char* info = at<const char*>(0x74c11c);
+                q.str = {{"name", info ? std::string(info + std::size_t(in<std::int32_t>(a, kACast)) * 0x200) : std::string()}};
+                const auto by = spawned_by().find(a);
+                q.str.emplace_back("by", by == spawned_by().end() ? std::string() : by->second);
+                const script::WorldDecision d = world_filter(q);
+                if (d.action == script::WorldDecision::Action::Suppress) {
+                    in<std::uint32_t>(a, kAKind) &= ~kKindSolid;
+                    in<std::uint8_t>(a, kADead) |= 2;
+                    continue;
+                }
+                if (d.action == script::WorldDecision::Action::Replace) {
+                    auto mul = [&](const char* k) { return float(std::clamp(d.n(k, 1.0), 0.01, 100.0)); };
+                    in<float>(a, kAMaxHp) = (std::max)(1.0f, in<float>(a, kAMaxHp) * mul("hp"));
+                    in<float>(a, kAHp) = in<float>(a, kAMaxHp);
+                    in<float>(a, kAAtk) *= mul("atk");
+                    in<float>(a, kADef) *= mul("def");
+                    in<float>(a, 0xb0) *= mul("exp");
+                    in<std::int32_t>(a, 0xc4) = int(float(in<std::int32_t>(a, 0xc4)) * mul("sp"));
+                }
+            }
+            emit_named(events::Event::named("enemy_spawned").with("actor", actor_id(a)).with("cast", in<std::int32_t>(a, kACast))
+                           .with("level", in<std::int32_t>(a, kALevel)).with("x", p[0]).with("y", p[1]).with("z", p[2]));
+        }
+        spawned_by().clear();
+    }
     static char* find_monster(int id) {
         const int n = at<std::int32_t>(kActorCount);
         for (int i = 0; i < n && i < 256; ++i)
@@ -419,6 +463,7 @@ struct RetailHost : script::Host {
             const float pos[3] = {float(n[1]), float(n[2]), float(n[3])};
             char* a = spawn_monster(cast, int(arg(5)), pos);
             if (!a) return false;
+            spawned_by()[a] = mod;
             *out = {double(actor_id(a))};
             return true;
         }
@@ -860,6 +905,9 @@ script::Host& host() {
 // The player's motion constants are copied from CASTINFO into its actor when it is built (each room): the speed
 // base at +0x30c (CASTINFO +0x48), the jump's first velocity at +0x408. The mods' factors are kept on top of
 // whatever the game last put there.
+void world_tick() {
+    if (hooked() && *reinterpret_cast<char**>(0x74c09c)) RetailHost::new_monsters();
+}
 bool actor_held(const void* actor) {
     const auto& s = RetailHost::held_set();
     if (s.empty()) return false;

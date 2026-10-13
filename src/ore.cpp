@@ -373,9 +373,26 @@ void on_saved(const char* file) {
     events::bus().emit(e);
 }
 
+bool world_on(const char* kind) {
+    if (WaitForSingleObject(g_started, 0) != WAIT_OBJECT_0) return false;
+    for (auto& m : g_scripts)
+        if (m->ok() && m->has_world_filter(kind)) return true;
+    return false;
+}
+script::WorldDecision world_filter(const script::WorldQuery& q) {
+    const std::string room = host().room();
+    for (auto& m : g_scripts) {
+        if (!m->ok() || !m->has_world_filter(q.kind)) continue;
+        const script::WorldDecision d = m->world_filter(q, room);
+        if (d.action != script::WorldDecision::Action::Pass) return d;
+    }
+    return {};
+}
+void emit_named(const events::Event& e) { emit(e, host().room()); }
 void on_tick() {
     if (WaitForSingleObject(g_started, 0) != WAIT_OBJECT_0 || (g_scripts.empty() && !content_on())) return;
     if (!g_tune.empty()) tune_tick();
+    world_tick();
     script::Host& h = host();
     const std::string room = h.room();
     const bool session = g_session != Session::None && !room.empty();   // a session starts with its first room
