@@ -62,6 +62,8 @@ const auto set_tier = reinterpret_cast<void(__fastcall*)(unsigned slot, int tier
 const auto level_ups = reinterpret_cast<void(__cdecl*)()>(0x420c40);                          // the level-ups the EXP total asks for, stats
 const auto write_save = reinterpret_cast<int(__fastcall*)(char* file)>(0x42e9a0);             // hooks.cpp hooks it: the sidecar follows
 const auto request_scene = reinterpret_cast<int(__fastcall*)(int scene, int force)>(0x430ef0);   // the next frame tears the room down and loads this one
+const auto play_bgm = reinterpret_cast<void(__fastcall*)(int id, int param)>(0x432ee0);          // Bgm_Play: -1 = the room's own
+const auto stop_bgm = reinterpret_cast<void(__fastcall*)(int fade)>(0x432fc0);                   // Bgm_Stop
 const auto sync_gauges = reinterpret_cast<void(__cdecl*)()>(0x4fa0e0);                        // the HUD's HP and MP gauges take the record's values
 const auto play_sound = reinterpret_cast<void(__fastcall*)(int id, int volume)>(0x43a040);    // a sound of EFFECTDEF, 0x400 = its own volume
 
@@ -678,6 +680,61 @@ struct RetailHost : script::Host {
             return true;
         }
         if (op == "show_bullet") return alive && n.size() >= 19 && ore::show_bullet(n.data());
+        // The equipment (progress_re/INVENTORY.md): the weapon, armor and leggings are g_flags 151..153; the accessory,
+        // the held item and the bracelet are the three ints at 0x76a628 (-1 = none).
+        if (op == "equipment") {
+            if (!out) return false;
+            *out = {double(flags()[151]), double(flags()[152]), double(flags()[153]), double(at<std::int32_t>(0x76a628)),
+                    double(at<std::int32_t>(0x76a630)), double(at<std::int32_t>(0x76a62c))};
+            return true;
+        }
+        if (op == "equip") {                                                      // an owned item of the slot's own range, or -1 where the game allows none
+            const int slot = int(arg(0)), item = int(arg(1, -1));
+            const bool owned = item >= 0 && item < 0x80 && flags()[item] >= 1;
+            auto is = [&](int lo, int hi) { return item >= lo && item <= hi && owned; };
+            switch (slot) {
+                case 0: if (!is(0, 5)) return false; flags()[151] = item; break;
+                case 1: if (!is(6, 29)) return false; flags()[152] = item; break;
+                case 2: if (!is(30, 53)) return false; flags()[153] = item; break;
+                case 3: if (item != -1 && !is(54, 65)) return false; at<std::int32_t>(0x76a628) = item; break;
+                case 4: if (item != -1 && !is(116, 119)) return false; at<std::int32_t>(0x76a630) = item; break;
+                case 5: if (item != -1 && !is(66, 115)) return false; at<std::int32_t>(0x76a62c) = item; break;
+                default: return false;
+            }
+            recompute_stats();
+            return true;
+        }
+        // The ailments (mech_re/STATUS_AILMENTS.md): the active mask at 0x76c15c (poison 1, heavy 8, confuse 0x10,
+        // curse 0x20) and a timer each from 0x76c160, in ticks. Set here with its full duration and none of the
+        // hit's show (the effect, the sound, the popup); cleared by running its timer out.
+        if (op == "status" || op == "set_status") {
+            static const std::uint32_t bits[4] = {0x01, 0x08, 0x10, 0x20};
+            static const int ticks[4] = {900, 300, 600, 1200};
+            std::int32_t* timer = &at<std::int32_t>(0x76c160);
+            std::uint32_t& mask = at<std::uint32_t>(0x76c15c);
+            if (op == "status") {
+                if (!out) return false;
+                out->clear();
+                for (int i = 0; i < 4; ++i) out->push_back(mask & bits[i] ? double((std::max)(timer[i], 1)) : 0.0);
+                return true;
+            }
+            const int i = int(arg(0));
+            if (i < 0 || i > 3 || !alive) return false;
+            if (arg(1) != 0.0) { mask |= bits[i]; timer[i] = ticks[i]; }
+            else if (mask & bits[i]) timer[i] = 0;
+            return true;
+        }
+        // Music, as a script's Bgm_Play (0xb9) and Bgm_Stop (0xba), and the fader a script drives (0xc8..0xcc): the
+        // two colours at 0x769f30 / 34, the current and target alpha at 0x769f1c / 24, the rate a frame at 0x769f28.
+        if (op == "bgm") { play_bgm(int(arg(0)), 0); return true; }
+        if (op == "bgm_stop") { stop_bgm(int(arg(0, 1000))); return true; }
+        if (op == "fade") {
+            at<std::uint32_t>(0x769f30) = at<std::uint32_t>(0x769f34) = std::uint32_t(arg(0)) & 0xffffffu;
+            at<float>(0x769f1c) = std::clamp(float(arg(1)), 0.0f, 1.0f);
+            at<float>(0x769f24) = std::clamp(float(arg(2)), 0.0f, 1.0f);
+            at<float>(0x769f28) = 1.0f / float((std::max)(1.0, arg(3, 20.0)));
+            return true;
+        }
         if (op == "tune") {                                                       // (key, factor): speed 0, jump 1; the rest is not backed
             const int k = int(arg(0, -1));
             if (k < 0 || k > 1) return false;

@@ -153,3 +153,20 @@ The notes themselves are gathered in the `yso` repository.
 - `world.show_bullet` calls the factory again with the player as owner and no power or knock. Driven: five
   copies of a recorded shot flew side by side, and raised no event of their own. A shown bullet is still the
   player's, so where it meets a monster it lands a hit of 0.
+
+## Equipment, ailments, music, the fader
+
+- **Equipment.** The weapon, armor and leggings are g_flags 151..153; the accessory, the held item and the
+  bracelet are three ints at `0x76a628`, `0x76a62c`, `0x76a630` (-1 none). Driven as Hugo: weapon 1, armor 13,
+  leggings 36, accessory 55, bracelet 116, held 84. `equip` writes them and runs the game's recompute; not
+  driven.
+- **Ailments.** The active mask is at `0x76c15c` (poison 1, heavy 8, confuse 0x10, curse 0x20), the four timers
+  from `0x76c160`, in ticks. Setting the bit and the timer is enough for the game to run the ailment: driven
+  in S_1099, poison took 1 HP about every second and its timer counted down from 900; a timer written to 0
+  ends it at the next tick. A goddess statue's room clears them at once (set in S_2013, they were gone 1.5 s
+  later). The hit's own show (effect, sound, popup) is not made.
+- **Music.** `FUN_00432ee0(ecx id, edx 0)` is a script's Bgm_Play (-1: the room's own), `FUN_00432fc0(ecx
+  fade)` Bgm_Stop. Called without a crash; what plays was not checked by ear.
+- **The fader** is plain memory: the two colours at `0x769f30` / `0x769f34`, the current alpha at `0x769f1c`,
+  the target at `0x769f24`, the step a frame at `0x769f28`. Driven: a purple veil to 0.6 over half a second,
+  then back to 0.
