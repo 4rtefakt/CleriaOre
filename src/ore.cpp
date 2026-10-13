@@ -51,7 +51,7 @@ std::set<std::string> g_pause;         // the mods that hold the game
 double g_boss_bonus = 0;               // cleria.combat.boss_bonus
 std::map<std::string, unsigned> g_hud_hidden;   // cleria.hud.show: per mod, the parts it hides
 float g_exp_factor = 1.0f;             // the mods' exp_factor product, as last written into the game's rate
-std::map<std::string, std::array<double, 2>> g_tune;   // per mod: the factors of the player's speed and jump
+std::map<std::string, std::array<double, 6>> g_tune;   // per mod: speed, jump, mp_cost, mp_regen, boost_gain (factors), air_jumps (a count)
 constexpr std::uintptr_t kBossGaugeOwner = 0x6d5fd8;   // the boss gauge's widget +4: its owner's instance id (actor +0x14), 0 = no gauge
 std::map<std::string, double> g_speed; // a mod's factor of the game's speed
 
@@ -263,12 +263,12 @@ void set_pause(const std::string& mod, bool on) {
 }
 bool paused() { return !g_pause.empty(); }
 void set_tune(const std::string& mod, int key, double factor) {
-    g_tune.try_emplace(mod, std::array<double, 2>{1, 1}).first->second[std::size_t(key)] = factor;
+    g_tune.try_emplace(mod, std::array<double, 6>{1, 1, 1, 1, 1, 0}).first->second[std::size_t(key)] = factor;
 }
 double tune(int key) {
-    double f = 1.0;
-    for (const auto& [id, a] : g_tune) f *= a[std::size_t(key)];
-    return key == 0 ? std::clamp(f, 0.1, 5.0) : std::clamp(f, 0.1, 4.0);
+    double f = key == 5 ? 0.0 : 1.0;                 // the product of the mods' factors; the sum of their air jumps
+    for (const auto& [id, a] : g_tune) { if (key == 5) f += a[5]; else f *= a[std::size_t(key)]; }
+    return key == 0 ? std::clamp(f, 0.1, 5.0) : key == 1 ? std::clamp(f, 0.1, 4.0) : key == 5 ? std::clamp(f, 0.0, 8.0) : std::clamp(f, 0.0, 10.0);
 }
 void set_hud_hidden(const std::string& mod, unsigned bits) {
     if (bits) g_hud_hidden[mod] = bits;
@@ -468,6 +468,54 @@ int on_shop_price(int sub, const char* script, const char* of, int price) {
     if (sub == 0x69 || sub == 0xb0) g_shop_paid = out;
     return out;
 }
+// The first answer of the mods' shop filters that is not Pass.
+static GrantDecision shop_ask(const ShopQuery& q) {
+    const std::string room = host().room();
+    GrantDecision d;
+    for (auto& m : g_scripts) {
+        if (!m->ok() || !m->has_shop_filter()) continue;
+        d = m->shop_filter(q, room);
+        if (d.action != GrantDecision::Action::Pass) break;
+    }
+    return d;
+}
+// A row the shop's menu is given (0xd8 Menu_Add: a "[Done]" row, no price; 0xdd Menu_AddSpShop: the text with its
+// price): the filter may give another text.
+const char* on_shop_row(int sub, const char* script, const char* label, const char* text, int price) {
+    const int bi = blessing_of(label);
+    if (bi < 0 || !text) return text;
+    ShopQuery q;
+    q.kind = ShopQuery::Kind::Row;
+    q.sub = sub;
+    q.index = bi;
+    q.value = sub == 0xdd ? price : -1;
+    q.text = text;
+    q.script = script ? script : "";
+    const GrantDecision d = shop_ask(q);
+    if (d.action != GrantDecision::Action::Replace) return text;
+    static std::string out;
+    out = d.text;
+    return out.c_str();
+}
+// 0x9a IsXXX(index) inside an @Grow* script, "already applied?": the filter's answer (0 / 1), or -1 for the game's own.
+int on_shop_owned(const char* script, int index) {
+    if (!g_shop || !script || index < 0 || index > 0x21 || _strnicmp(script, "@grow", 5) != 0) return -1;
+    int own = 0;
+    if (index == 7 || index == 8) {    // the armor, the leggings: the item worn is owned (FUN_00420210)
+        const int item = *reinterpret_cast<std::int32_t*>(index == 7 ? 0x76bb7c : 0x76bb80);
+        own = item >= 0 && item < 54 && *reinterpret_cast<std::int32_t*>(0x76a654 + 4 * item) == 1;
+    } else {
+        own = (*reinterpret_cast<std::uint32_t*>(0x76bc80) >> (index <= 6 ? index : index - 2)) & 1;
+    }
+    ShopQuery q;
+    q.kind = ShopQuery::Kind::Owned;
+    q.sub = 0x9a;
+    q.index = index;
+    q.value = own;
+    q.script = script;
+    const GrantDecision d = shop_ask(q);
+    return d.action == GrantDecision::Action::Replace ? (d.value != 0 ? 1 : 0) : -1;
+}
 int on_blessing(int index) {
     if (WaitForSingleObject(g_started, 0) != WAIT_OBJECT_0 || g_scripts.empty()) return index;
     const std::string room = host().room();
@@ -494,13 +542,76 @@ int on_blessing(int index) {
     return d.action == GrantDecision::Action::Replace && d.index >= 0 && d.index <= 0x21 ? d.index : index;
 }
 void emit_named(const events::Event& e) { emit(e, host().room()); }
+// One of the game's scripts is about to start by name (FUN_00434970; `from` is the caller's return address): the
+// mods' "script" filter may refuse it, then script_started; the action button's start (the two calls of
+// FUN_00460470; the object's own name lies 0x34 after its script's) is also interact, and statue_used.
+bool on_script(const char* name, const void* owner, std::uintptr_t from) {
+    if (WaitForSingleObject(g_started, 0) != WAIT_OBJECT_0 || g_scripts.empty() || !name || !*name) return true;
+    if (from >= 0x431840 && from < 0x431840 + 5220) return true;       // a room's own scripts at its load
+    const std::string room = host().room();
+    const bool interact = from >= 0x460470 && from < 0x460470 + 1699;
+    int who = 0;
+    if (interact || owner == *reinterpret_cast<void**>(0x74c09c)) who = 13;
+    else if (owner && *reinterpret_cast<const std::uintptr_t*>(owner) == 0x69ba3c) who = *reinterpret_cast<const std::int32_t*>(static_cast<const char*>(owner) + 0x124);
+    if (world_on("script")) {
+        script::WorldQuery q;
+        q.kind = "script";
+        q.num = {{"owner", double(who)}};
+        q.str = {{"name", name}, {"room", room}};
+        if (world_filter(q).action == script::WorldDecision::Action::Suppress) return false;
+    }
+    emit(events::Event::named("script_started").with("name", name).with("owner", who), room);
+    if (interact) {
+        const char* obj = name + 0x34;
+        std::string object(obj, strnlen(obj, 31)), low(name);
+        for (char& c : low) c = char(std::tolower(static_cast<unsigned char>(c)));
+        emit(events::Event::named("interact").with("object", object).with("script", low), room);
+        if (low == "save" || low == "@save") emit(events::Event::named("statue_used").with("object", object).with("cleansed", low[0] == '@' ? 1 : 0), room);
+    }
+    return true;
+}
+// The player casts a skill (FUN_0046ea00): the "skill" filter before it, skill_used after. The bracelet worn is
+// 0x76a630 (0x74..0x76), the charge 0x76c138 (2 = charged), the MP it will cost the mover's at player +0x774.
+std::uint32_t g_swing = 0;             // the player's hit serial (+0x3c4) as last seen
+static double g_skill[4];
+bool on_skill(const void* player) {
+    const char* p = static_cast<const char*>(player);
+    const int item = *reinterpret_cast<std::int32_t*>(0x76a630);
+    g_skill[0] = item - 0x73;
+    g_skill[1] = item;
+    g_skill[2] = *reinterpret_cast<std::int32_t*>(0x76c138) == 2 ? 2 : 1;
+    g_skill[3] = *reinterpret_cast<const std::int32_t*>(p + 0x774);
+    if (WaitForSingleObject(g_started, 0) != WAIT_OBJECT_0 || g_scripts.empty() || !world_on("skill")) return true;
+    script::WorldQuery q;
+    q.kind = "skill";
+    q.num = {{"slot", g_skill[0]}, {"item", g_skill[1]}, {"level", g_skill[2]}, {"cost", g_skill[3]}, {"mp", double(*reinterpret_cast<float*>(0x76a738))},
+             {"air", *reinterpret_cast<const std::int32_t*>(p + 0x388) != 0 ? 0.0 : 1.0}};
+    return world_filter(q).action != script::WorldDecision::Action::Suppress;
+}
+void on_skill_done(const void* player, std::uint32_t serial_before) {
+    const char* p = static_cast<const char*>(player);
+    const std::uint32_t serial = *reinterpret_cast<const std::uint32_t*>(p + 0x3c4);
+    if (serial == serial_before) return;                               // refused by the game: nothing was cast
+    g_swing = serial;
+    if (WaitForSingleObject(g_started, 0) != WAIT_OBJECT_0 || g_scripts.empty()) return;
+    emit(events::Event::named("skill_used").with("slot", int(g_skill[0])).with("item", int(g_skill[1])).with("level", int(g_skill[2])).with("cost", int(g_skill[3]))
+             .with("section", *reinterpret_cast<const std::int32_t*>(p + 0x994)),
+         host().room());
+}
+// A jump's lift-off (0x468d84, where the mover stores its speed): the player in the air already makes it a double.
+void on_jump(const void* player) {
+    if (WaitForSingleObject(g_started, 0) != WAIT_OBJECT_0 || g_scripts.empty()) return;
+    const char* p = static_cast<const char*>(player);
+    const bool water = p[0x38a] != 0;                                  // submerged: the water's own jump
+    emit(events::Event::named("jump").with("double", !water && *reinterpret_cast<const std::int32_t*>(p + 0x388) == 0 ? 1 : 0).with("water", water ? 1 : 0),
+         host().room());
+}
 void on_tick() {
     if (WaitForSingleObject(g_started, 0) != WAIT_OBJECT_0 || (g_scripts.empty() && !content_on())) return;
     g_shop = false;
     for (auto& m : g_scripts) g_shop = g_shop || (m->ok() && m->has_shop_filter());
-    if (!g_tune.empty()) tune_tick();
+    tune_tick();
     cam_tick();
-    if (!g_hud_hidden.empty()) hud_tick();
     world_tick();
     script::Host& h = host();
     const std::string room = h.room();
@@ -557,6 +668,22 @@ void on_tick() {
             if (i == 0 || i >= title.size() || title[i] != 'F') fl = 0;
             if (was_floor != -2 && fl > 0 && fl != was_floor) emit(events::Event::named("floor_changed").with("floor", fl).with("old", was_floor > 0 ? was_floor : 0), room);
             if (fl > 0 || was_floor == -2) was_floor = fl;
+        }
+        // boost, land, attack: read off the player's actor each step. The Boost is bit 0x20 of 0x76c198; +0x388 is
+        // set on the ground; +0x3c4 is the hit serial, which every new swing takes afresh (a skill's cast too:
+        // on_skill_done notes that one).
+        if (const char* p = *reinterpret_cast<const char**>(0x74c09c)) {
+            static const char* was_p = nullptr;
+            static bool was_boost = false, was_ground = true;
+            const bool boost = (*reinterpret_cast<std::uint32_t*>(0x76c198) & 0x20u) != 0, ground = *reinterpret_cast<const std::int32_t*>(p + 0x388) != 0;
+            const std::uint32_t serial = *reinterpret_cast<const std::uint32_t*>(p + 0x3c4);
+            if (p == was_p) {
+                if (boost != was_boost) emit(events::Event::named("boost").with("on", boost ? 1 : 0), room);
+                if (ground && !was_ground) emit(events::Event::named("land"), room);
+                if (serial != g_swing && serial != 0)
+                    emit(events::Event::named("attack").with("section", *reinterpret_cast<const std::int32_t*>(p + 0x994)).with("air", ground ? 0 : 1), room);
+            }
+            was_p = p; was_boost = boost; was_ground = ground; g_swing = serial;
         }
     }
     for (auto& m : g_scripts)

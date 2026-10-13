@@ -324,8 +324,8 @@ struct RetailHost : script::Host {
     }
     static std::map<const void*, std::string>& spawned_by() { static std::map<const void*, std::string> m; return m; }   // world.spawn's, until world_tick
     // The monsters built since the last step: each passes the mods' "spawn" filter once (the multipliers of its
-    // numbers, or "suppress": it is removed), then enemy_spawned. The filter comes after the game built the
-    // monster, so it cannot change its cast or its level.
+    // numbers, another cast, or "suppress": it is removed), then enemy_spawned. The filter comes after the game
+    // built the monster, so it cannot change its level.
     static void new_monsters() {
         static std::set<int> known;
         static std::int32_t room = 0;
@@ -351,6 +351,18 @@ struct RetailHost : script::Host {
                     continue;
                 }
                 if (d.action == script::WorldDecision::Action::Replace) {
+                    // Another cast: the monster built is removed and that one built where it stood.
+                    const int cast = int(d.n("cast", double(in<std::int32_t>(a, kACast))));
+                    if (cast != in<std::int32_t>(a, kACast) && cast >= 14 && cast < 186 && cast_sheet(cast) >= 0) {
+                        const float pos[3] = {p[0], p[1], p[2]};
+                        if (char* b = spawn_monster(cast, int(in<float>(a, kAYaw) * 57.29578f), pos)) {
+                            in<std::uint32_t>(a, kAKind) &= ~kKindSolid;
+                            in<std::uint8_t>(a, kADead) |= 2;
+                            known.insert(actor_id(b));
+                            a = b;
+                            p = &in<float>(a, kAPos);
+                        }
+                    }
                     auto mul = [&](const char* k) { return float(std::clamp(d.n(k, 1.0), 0.01, 100.0)); };
                     in<float>(a, kAMaxHp) = (std::max)(1.0f, in<float>(a, kAMaxHp) * mul("hp"));
                     in<float>(a, kAHp) = in<float>(a, kAMaxHp);
@@ -895,13 +907,13 @@ struct RetailHost : script::Host {
             unsigned& v = hidden[mod];
             const unsigned bit = unsigned(arg(0));
             v = arg(1) != 0 ? (v & ~bit) : (v | bit);
-            set_hud_hidden(mod, v & 1u);
-            return (bit & 1u) != 0;
+            set_hud_hidden(mod, v);
+            return true;
         }
-        if (op == "tune") {                                                       // (key, factor): speed 0, jump 1; the rest is not backed
+        if (op == "tune") {                                                       // (key, factor): speed, jump, mp_cost, mp_regen, boost_gain; 5 the extra air jumps
             const int k = int(arg(0, -1));
-            if (k < 0 || k > 1) return false;
-            set_tune(mod, k, std::clamp(arg(1, 1.0), 0.0, 10.0));
+            if (k < 0 || k > 5) return false;
+            set_tune(mod, k, k == 5 ? std::clamp(std::floor(arg(1)), 0.0, 8.0) : std::clamp(arg(1, 1.0), 0.0, 10.0));
             return true;
         }
         if (op == "cam_get") {
@@ -1137,8 +1149,8 @@ script::Host& host() {
 // base at +0x30c (CASTINFO +0x48), the jump's first velocity at +0x408. The mods' factors are kept on top of
 // whatever the game last put there.
 // A room change between two of the game's rooms ("S_nnnn"; not the title, a movie or the first room of a session):
-// q.from, q.to; the answer's `to` names another room, "suppress" cancels it. index and door are not known here
-// (-1, ""): the request does not say which door asked.
+// q.from, q.to, and for a door its index in the room's pool and its label (-1 and "" for a script's change); the
+// answer's `to` names another room, "suppress" cancels it.
 int exit_filter(int scene) {
     if (!world_on("exit")) return scene;
     const char* recs = *reinterpret_cast<const char**>(0x74c124);
@@ -1152,8 +1164,20 @@ int exit_filter(int scene) {
     if (to.rfind("S_", 0) != 0) return scene;
     script::WorldQuery q;
     q.kind = "exit";
-    q.num = {{"index", -1.0}};
-    q.str = {{"from", from}, {"to", to}, {"door", ""}};
+    // A door's change (the fade's commit, 0x4108e1) still has its scene staged at 0x769fb8 and its descriptor at
+    // 0x769fbc, the door's label 0x14 into it: the door is the pool's entry with that descriptor.
+    int index = -1;
+    std::string door;
+    if (*reinterpret_cast<const std::int32_t*>(0x769fb8) == scene) {
+        const char* pool = *reinterpret_cast<const char**>(0x76a2b4);
+        const int doors = pool ? *reinterpret_cast<const std::int32_t*>(0x76a2b8) : 0;
+        for (int i = 0; i < doors && i < 64 && index < 0; ++i)
+            if (const char* e = pool + std::size_t(i) * 0x2a0; e[4] && std::memcmp(e + 0x44, reinterpret_cast<const char*>(0x769fbc), 0x194) == 0) index = i;
+        const char* label = reinterpret_cast<const char*>(0x769fbc + 0x14);
+        door.assign(label, strnlen(label, 0x40));
+    }
+    q.num = {{"index", double(index)}};
+    q.str = {{"from", from}, {"to", to}, {"door", door}};
     const script::WorldDecision d = world_filter(q);
     if (d.action == script::WorldDecision::Action::Suppress) return 0;
     if (d.action != script::WorldDecision::Action::Replace) return scene;
@@ -1176,13 +1200,6 @@ bool actor_held(const void* actor) {
     if (s.empty()) return false;
     RetailHost::held_room();
     return s.count(actor) != 0;
-}
-// After each step: the HUD's fade back to 0 and its tint to no alpha, so the frame draws none of it. Let go, the
-// game's own fade brings it back in ten steps.
-void hud_tick() {
-    if (!hooked() || !(hud_hidden() & 1u)) return;
-    *reinterpret_cast<float*>(0x74e688) = 0.0f;
-    *reinterpret_cast<std::uint32_t*>(0x74e68c) = 0x00ffffffu;
 }
 // The game publishes its camera each step (the subject at 0x76a160, the eye at 0x76a16c, the field of view at
 // 0x7b38f4) and builds the frame's view from it. The layer is applied to what the game wrote; values still as the
@@ -1215,6 +1232,40 @@ void tune_tick() {
         const float want = base[k] * float(tune(k));
         if (v != want) v = want;
         wrote[k] = want;
+    }
+    // mp_regen, boost_gain: what the step added to the gauge is scaled (a small gain only: not an herb, not a mod's
+    // own write). The Boost's gauge is left alone while a Boost runs.
+    static float last_mp = 0, last_boost = 0;
+    float& mp = *reinterpret_cast<float*>(kMp);
+    float& boost = *reinterpret_cast<float*>(kBoost);
+    const float max_mp = *reinterpret_cast<float*>(kMaxMp);
+    if (const float f = float(tune(3)), d = mp - last_mp; f != 1.0f && d > 0 && d < max_mp * 0.02f) mp = std::clamp(last_mp + d * f, 0.0f, max_mp);
+    if (const float f = float(tune(4)), d = boost - last_boost; f != 1.0f && d > 0 && d < 6000.0f && !(*reinterpret_cast<std::uint32_t*>(0x76c198) & 0x20u))
+        boost = std::clamp(last_boost + d * f, 0.0f, 30000.0f);
+    last_mp = mp;
+    last_boost = boost;
+    // air_jumps: the mover allows one jump in the air with flag 163 (0x76bba8), once: +0x77c is set by it and
+    // cleared on the ground. For each extra jump the mark is cleared again; without the ability the flag is lent
+    // while the player is in the air and has jumps left.
+    static int used = 0;
+    static bool lent = false, was = false;
+    std::int32_t& own = *reinterpret_cast<std::int32_t*>(0x76bba8);
+    std::int32_t& mark = *reinterpret_cast<std::int32_t*>(player + 0x77c);
+    const int extra = int(tune(5));
+    if (*reinterpret_cast<std::int32_t*>(player + 0x388) != 0 || (extra <= 0 && !lent)) {
+        if (lent) own = 0;
+        used = 0;
+        lent = was = false;
+        return;
+    }
+    if (mark != 0 && !was) ++used;
+    was = mark != 0;
+    if (used < ((own != 0 && !lent) ? 1 : 0) + extra) {
+        if (own == 0) { own = 1; lent = true; }
+        if (mark != 0) { mark = 0; was = false; }
+    } else if (lent) {
+        own = 0;
+        lent = false;
     }
 }
 

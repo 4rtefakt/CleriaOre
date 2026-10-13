@@ -172,6 +172,47 @@ void make_texture(Image& im) {
 const bool g_drive = std::getenv("CLERIAORE_DRIVE") != nullptr;
 unsigned char g_drive_keys[256] = {};
 bool g_drive_mouse[4] = {};   // codes 100..103: the mouse buttons
+std::string g_drive_shot;     // "shot <name>": the frame being drawn is written to drive/<name>.bmp
+// The frame as the device holds it (so whatever covers the game's window on the desktop does not matter).
+void drive_shot(IDirect3DDevice9* dev) {
+    const std::string name = std::exchange(g_drive_shot, std::string());
+    IDirect3DSurface9 *rt = nullptr, *flat = nullptr, *mem = nullptr;
+    D3DSURFACE_DESC d{};
+    D3DLOCKED_RECT lr{};
+    bool ok = false;
+    if (SUCCEEDED(dev->GetRenderTarget(0, &rt)) && SUCCEEDED(rt->GetDesc(&d)) && (d.Format == D3DFMT_X8R8G8B8 || d.Format == D3DFMT_A8R8G8B8)) {
+        IDirect3DSurface9* from = rt;
+        if (d.MultiSampleType != D3DMULTISAMPLE_NONE &&     // a multisampled target is resolved first
+            SUCCEEDED(dev->CreateRenderTarget(d.Width, d.Height, d.Format, D3DMULTISAMPLE_NONE, 0, FALSE, &flat, nullptr)) &&
+            SUCCEEDED(dev->StretchRect(rt, nullptr, flat, nullptr, D3DTEXF_NONE)))
+            from = flat;
+        if (SUCCEEDED(dev->CreateOffscreenPlainSurface(d.Width, d.Height, d.Format, D3DPOOL_SYSTEMMEM, &mem, nullptr)) &&
+            SUCCEEDED(dev->GetRenderTargetData(from, mem)) && SUCCEEDED(mem->LockRect(&lr, nullptr, D3DLOCK_READONLY))) {
+            if (std::FILE* f = _wfsopen((dir() / "drive" / (name + ".bmp")).c_str(), L"wb", _SH_DENYWR)) {
+                BITMAPFILEHEADER fh{};
+                BITMAPINFOHEADER ih{};
+                fh.bfType = 0x4d42;
+                fh.bfOffBits = sizeof fh + sizeof ih;
+                fh.bfSize = fh.bfOffBits + d.Width * d.Height * 4;
+                ih.biSize = sizeof ih;
+                ih.biWidth = LONG(d.Width);
+                ih.biHeight = -LONG(d.Height);
+                ih.biPlanes = 1;
+                ih.biBitCount = 32;
+                std::fwrite(&fh, sizeof fh, 1, f);
+                std::fwrite(&ih, sizeof ih, 1, f);
+                for (UINT y = 0; y < d.Height; ++y) std::fwrite(static_cast<const char*>(lr.pBits) + y * lr.Pitch, 4, d.Width, f);
+                std::fclose(f);
+                ok = true;
+            }
+            mem->UnlockRect();
+        }
+    }
+    if (mem) mem->Release();
+    if (flat) flat->Release();
+    if (rt) rt->Release();
+    log("[drive] shot %s%s", name.c_str(), ok ? "" : ": failed");
+}
 void drive_poll() {
     if (!g_drive) return;
     std::memset(g_drive_keys, 0, sizeof g_drive_keys);
@@ -196,6 +237,7 @@ void drive_poll() {
             const std::size_t sp = l.find(' ');
             if (l.empty()) continue;
             if (l == "panel") { g_panel.open = !g_panel.open; continue; }
+            if (l.rfind("shot ", 0) == 0) { g_drive_shot = l.substr(5); continue; }   // this frame, as drive/<name>.bmp
             if (l == "rawactors") { host().game_op("drive", "actors_raw", {}, {}, nullptr); continue; }   // the live list, to the log
             // For study: "peek <addr> [n]" logs n dwords, "poke <addr> <value>" writes one; hexadecimal, and "p+off"
             // for an offset into the player's actor.
@@ -340,6 +382,7 @@ HRESULT WINAPI hook_end_scene(IDirect3DDevice9* dev) {
     ImGui::EndFrame();
     ImGui::Render();
     ImGui_ImplDX9_RenderDrawData(ImGui::GetDrawData());
+    if (!g_drive_shot.empty()) drive_shot(dev);
     return g_end_scene(dev);
 }
 

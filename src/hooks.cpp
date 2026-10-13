@@ -106,6 +106,7 @@ constexpr std::uintptr_t kFetch = 0x566190;
 constexpr std::uint8_t kFetchBytes[] = {0x56, 0x8b, 0x74, 0x24, 0x18, 0x8b, 0xc6, 0x99, 0x83, 0xe2, 0x07, 0x03, 0xc2, 0x8b, 0x54, 0x24};
 using FetchFn = int*(__thiscall*)(void* script, void* ctx, int sub, void* word, int* ops, int index);
 FetchFn g_fetch = nullptr;
+int g_row_price = 0;                    // the price of the menu row being built (0xdd)
 int* __fastcall hook_fetch(void* script, void*, void* ctx, int sub, void* word, int* ops, int index) {
     int* p = g_fetch(script, ctx, sub, word, ops, index);
     if (!shop_on() || !p || !script) return p;
@@ -125,7 +126,31 @@ int* __fastcall hook_fetch(void* script, void*, void* ctx, int sub, void* word, 
         of = reinterpret_cast<const char*(__thiscall*)(void*, void*, int, void*, int*, int)>(0x566100)(script, ctx, sub, word, ops, 1);
     static int answer = 0;
     answer = on_shop_price(sub, name, of, *p);
+    if (sub == 0xdd) g_row_price = answer;
     return answer == *p ? p : &answer;
+}
+// FUN_00566100, the fetch of a string operand (the same arguments): only noted, for the row that follows.
+constexpr std::uintptr_t kFetchStr = 0x566100;
+constexpr std::uint8_t kFetchStrBytes[] = {0x53, 0x57, 0x8b, 0x7c, 0x24, 0x1c, 0x8b, 0xd9, 0x8b, 0xc7, 0x8b, 0xcf, 0x99, 0x83, 0xe1, 0x07};
+using FetchStrFn = const char*(__thiscall*)(void* script, void* ctx, int sub, void* word, int* ops, int index);
+FetchStrFn g_fetch_str = nullptr;
+const void* g_str_script = nullptr;     // the script and the sub-op of the last string fetched
+int g_str_sub = 0;
+const char* __fastcall hook_fetch_str(void* script, void*, void* ctx, int sub, void* word, int* ops, int index) {
+    g_str_script = script;
+    g_str_sub = sub;
+    return g_fetch_str(script, ctx, sub, word, ops, index);
+}
+// FUN_005747a0, Menu_Add: thiscall(the windows; text, label), a row of the menu a script builds. 0xd8 (Menu_Add)
+// and 0xdd (Menu_AddSpShop, the text with its price put after it) both end here, the label their last fetch.
+constexpr std::uintptr_t kMenuAdd = 0x5747a0;
+constexpr std::uint8_t kMenuAddBytes[] = {0x56, 0x8b, 0xf1, 0x8b, 0x8e, 0x3c, 0x02, 0x00, 0x00, 0x8b, 0x01, 0x8b, 0x00, 0xff, 0xd0, 0x3c};
+using MenuAddFn = void(__thiscall*)(void* self, const char* text, const char* label);
+MenuAddFn g_menu_add = nullptr;
+void __fastcall hook_menu_add(void* self, void*, const char* text, const char* label) {
+    if (shop_on() && g_str_script && (g_str_sub == 0xd8 || g_str_sub == 0xdd))
+        text = on_shop_row(g_str_sub, static_cast<const char*>(g_str_script) + 0x124, label, text, g_row_price);
+    g_menu_add(self, text, label);
 }
 // FUN_0045a2f0, GoActor's update (its vtable's third entry): a jump to the actor's handler, by its index at +0x120.
 // An actor a mod holds is not updated: it stays where and as it was put. It is still drawn: a handler hands its
@@ -264,6 +289,114 @@ __declspec(naked) void hook_bless() {
     no_effect:
         mov  eax, kVmNext
         jmp  eax
+    }
+}
+// FUN_00434970, a script started by name: ecx the name, edx 1 for a full path; on the stack its variables (or 0)
+// and its owner (or 0), which the caller pops. -> the script, 0 when it did not start. The mods may refuse it.
+constexpr std::uintptr_t kScript = 0x434970;
+constexpr std::uint8_t kScriptBytes[] = {0x55, 0x8b, 0xec, 0x6a, 0xff, 0x68, 0x8f, 0x4e, 0x67, 0x00, 0x64, 0xa1, 0x00, 0x00, 0x00, 0x00};
+void* g_script = nullptr;
+bool g_script_go = true;
+void __cdecl script_start(const char* name, const void* owner, std::uintptr_t from) { g_script_go = on_script(name, owner, from); }
+__declspec(naked) void hook_script() {
+    __asm {
+        ORE_ENTER
+        push dword ptr [ebx + 36]       // past pushfd and pushad: the return address
+        push dword ptr [ebx + 44]       // the owner
+        push ecx
+        call script_start
+        add  esp, 12
+        ORE_LEAVE
+        cmp  byte ptr [g_script_go], 0
+        je   refused
+        jmp  dword ptr [g_script]
+    refused:
+        xor  eax, eax
+        ret
+    }
+}
+// FUN_0046ea00, the player's cast: thiscall(player; 1 the skill, 0 the plain attack that goes the same way, as
+// Hugo's shot does, unless a skill is pending at +0x9fc).
+constexpr std::uintptr_t kSkill = 0x46ea00;
+constexpr std::uint8_t kSkillBytes[] = {0x55, 0x8b, 0xec, 0x64, 0xa1, 0x00, 0x00, 0x00, 0x00, 0x6a, 0xff, 0x68, 0x58, 0x5d, 0x67, 0x00};
+void(__thiscall* g_skill)(void* player, int mode) = nullptr;
+void __fastcall hook_skill(void* player, void*, int mode) {
+    if (mode != 1 && *reinterpret_cast<int*>(static_cast<char*>(player) + 0x9fc) == 0) { g_skill(player, mode); return; }   // a plain attack
+    int& cost = *reinterpret_cast<int*>(static_cast<char*>(player) + 0x774);
+    cost = int(double(cost) * tune(2));                                // the mods' mp_cost
+    if (!on_skill(player)) return;
+    const std::uint32_t serial = *reinterpret_cast<std::uint32_t*>(static_cast<char*>(player) + 0x3c4);
+    g_skill(player, mode);
+    on_skill_done(player, serial);
+}
+// The mover's jump, where it stores the lift-off speed (edi the player):
+//   0x468d84  movss [edi+0x420], xmm0
+constexpr std::uintptr_t kJump = 0x468d84;
+constexpr std::uint8_t kJumpBytes[] = {0xf3, 0x0f, 0x11, 0x87, 0x20, 0x04, 0x00, 0x00, 0xe8, 0x0f, 0x25, 0xfa, 0xff};
+void* g_jump = nullptr;
+void __cdecl jumped(const void* player) { on_jump(player); }
+__declspec(naked) void hook_jump() {
+    __asm {
+        ORE_ENTER
+        push edi
+        call jumped
+        add  esp, 4
+        ORE_LEAVE
+        jmp  dword ptr [g_jump]
+    }
+}
+// FUN_004295d0, the HUD's draw: the status widgets (each drawn while its owner, +4, or its fading flag, +0x48, is
+// set: 0x6d5ef0 the gauges and the portrait, 0x6d5f3c the skill's), then the boss gauge by FUN_0043a770 (widget
+// 0x6d5fd4 in ecx). A part a mod hides is not drawn: the status widgets read as absent for the call, the gauge's
+// draw is skipped.
+constexpr std::uintptr_t kHudDraw = 0x4295d0, kBossDraw = 0x43a770;
+constexpr std::uint8_t kHudDrawBytes[] = {0x55, 0x8b, 0xec, 0x83, 0xe4, 0xf8, 0xb8, 0xe8, 0x15, 0x00, 0x00, 0xe8, 0x90, 0x3b, 0x24, 0x00};
+constexpr std::uint8_t kBossDrawBytes[] = {0x81, 0xec, 0x9c, 0x04, 0x00, 0x00, 0x81, 0x3d, 0x60, 0x77, 0x76, 0x00, 0x41, 0x00, 0x02, 0x00};
+void(__cdecl* g_hud_draw)() = nullptr;
+void(__fastcall* g_boss_draw)(void*) = nullptr;
+void __cdecl hook_hud_draw() {
+    if (!(hud_hidden() & 1u)) { g_hud_draw(); return; }
+    std::uint32_t& own0 = *reinterpret_cast<std::uint32_t*>(0x6d5ef4);
+    std::uint32_t& own1 = *reinterpret_cast<std::uint32_t*>(0x6d5f40);
+    std::uint8_t& fade0 = *reinterpret_cast<std::uint8_t*>(0x6d5f38);
+    std::uint8_t& fade1 = *reinterpret_cast<std::uint8_t*>(0x6d5f84);
+    const std::uint32_t o0 = own0, o1 = own1;
+    const std::uint8_t f0 = fade0, f1 = fade1;
+    own0 = own1 = 0;
+    fade0 = fade1 = 0;
+    g_hud_draw();
+    own0 = o0; own1 = o1;
+    fade0 = f0; fade1 = f1;
+}
+void __fastcall hook_boss_draw(void* widget) {
+    if (!(hud_hidden() & 2u)) g_boss_draw(widget);
+}
+// The VM's 0x9a (IsXXX), after its operand's fetch: eax = the pointer to the index, edi = the script, its
+// accumulator (+0x1ec) already 0. The shop filter's "owned" answer is put there and the case skipped.
+//   0x568fcd  mov eax, [eax] ; cmp eax, 0x21 ; ja <false>
+constexpr std::uintptr_t kOwned = 0x568fcd;
+constexpr std::uint8_t kOwnedBytes[] = {0x8b, 0x00, 0x83, 0xf8, 0x21, 0x0f, 0x87, 0x45, 0x4b, 0x00, 0x00};
+void* g_owned = nullptr;
+int g_owned_answer = -1;
+void __cdecl owned(const void* script, const int* index) {
+    g_owned_answer = on_shop_owned(static_cast<const char*>(script) + 0x124, *index);
+}
+__declspec(naked) void hook_owned() {
+    __asm {
+        ORE_ENTER
+        push eax
+        push edi
+        call owned
+        add  esp, 8
+        ORE_LEAVE
+        cmp  dword ptr [g_owned_answer], 0
+        jl   game_answer
+        mov  eax, dword ptr [g_owned_answer]
+        mov  dword ptr [edi + 0x1ec], eax
+        mov  eax, kVmNext
+        jmp  eax
+    game_answer:
+        jmp  dword ptr [g_owned]
     }
 }
 __declspec(naked) void hook_taken() {
@@ -687,6 +820,10 @@ const Site kSites[] = {
     SITE(kActorUpdate, kActorUpdateBytes, &hook_actor_update, &g_actor_update), SITE(kScene, kSceneBytes, &hook_scene, &g_scene),
     SITE(kBless, kBlessBytes, &hook_bless, &g_bless),     SITE(kBullet, kBulletBytes, &hook_bullet, &g_bullet),
     SITE(kEffect, kEffectBytes, &hook_effect, &g_effect), SITE(kFetch, kFetchBytes, &hook_fetch, &g_fetch),
+    SITE(kFetchStr, kFetchStrBytes, &hook_fetch_str, &g_fetch_str), SITE(kMenuAdd, kMenuAddBytes, &hook_menu_add, &g_menu_add),
+    SITE(kOwned, kOwnedBytes, &hook_owned, &g_owned),     SITE(kHudDraw, kHudDrawBytes, &hook_hud_draw, &g_hud_draw),
+    SITE(kBossDraw, kBossDrawBytes, &hook_boss_draw, &g_boss_draw), SITE(kScript, kScriptBytes, &hook_script, &g_script),
+    SITE(kSkill, kSkillBytes, &hook_skill, &g_skill),     SITE(kJump, kJumpBytes, &hook_jump, &g_jump),
     SITE(kSpawn, kSpawnBytes, &hook_spawn, &g_spawn),       SITE(kTouch, kTouchBytes, &hook_touch, &g_touch),
 };
 #undef SITE

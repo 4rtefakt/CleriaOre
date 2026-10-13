@@ -52,7 +52,13 @@ void script_kill(void* victim);                                                 
 bool shop_on();                                                                  // some mod has a shop filter
 // The Price query of a blessing: `of` names it ("@Grow03": the running script, or the menu row's label).
 int on_shop_price(int sub, const char* script, const char* of, int price);
-int on_blessing(int index);                                                      // a blessing's effect is about to be given: -> the index, -1 = none
+const char* on_shop_row(int sub, const char* script, const char* label, const char* text, int price);
+int on_shop_owned(const char* script, int index);
+bool on_script(const char* name, const void* owner, std::uintptr_t from);         // a script starts by name; false = refused
+bool on_skill(const void* player);                                               // a skill is about to be cast; false = refused
+void on_skill_done(const void* player, std::uint32_t serial_before);
+void on_jump(const void* player);
+int on_blessing(int index);                                                    // a blessing's effect is about to be given: -> the index, -1 = none
 int on_part_damage(int value, const void* victim, const void* source);           // the same for a hit on a map object (a boss's part)
 float on_exp(float value, int source, const void* victim);    // -> the EXP awarded; source 0 a kill, 1 a boss
 void on_kill(const void* victim, float* sp);                   // a monster died of the player's hit; *sp = the SP it gives, before the game's scale
@@ -108,7 +114,6 @@ double tune(int key);
 // cleria.hud.show: the parts a mod hides (1 status, 2 boss gauge, 4 messages).
 void set_hud_hidden(const std::string& mod, unsigned bits);
 unsigned hud_hidden();
-void hud_tick();                                     // host.cpp: the game's HUD kept out of sight while a mod hides it
 void cam_tick();                                     // host.cpp: the mods' layer over the camera the game publishes
 void tune_tick();                                    // host.cpp: the player's actor follows, each step
 // cleria.world.add_filter: whether a mod has a filter of that kind, and the first answer that is not "pass".
