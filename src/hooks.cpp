@@ -345,6 +345,28 @@ __declspec(naked) void hook_jump() {
         jmp  dword ptr [g_jump]
     }
 }
+// FUN_00450410, the effect factory (fastcall: the effect id, then the caller's own words): -> the effect, 0 = none.
+// While an aura is being made its answer is kept: the return address is swapped for the hook's own tail.
+constexpr std::uintptr_t kFx = 0x450410;
+constexpr std::uint8_t kFxBytes[] = {0x55, 0x8b, 0xec, 0x6a, 0xff, 0x68, 0xf8, 0x55, 0x67, 0x00, 0x64, 0xa1, 0x00, 0x00, 0x00, 0x00};
+void* g_fx = nullptr;
+bool g_fx_capture = false;
+void* g_fx_made = nullptr;
+void* g_fx_back = nullptr;
+__declspec(naked) void hook_fx() {
+    __asm {
+        cmp  byte ptr [g_fx_capture], 0
+        je   plain
+        mov  byte ptr [g_fx_capture], 0   // (this call only: the factory makes an effect's children by itself)
+        pop  dword ptr [g_fx_back]
+        push offset made
+    plain:
+        jmp  dword ptr [g_fx]
+    made:
+        mov  dword ptr [g_fx_made], eax
+        jmp  dword ptr [g_fx_back]
+    }
+}
 // FUN_004295d0, the HUD's draw: the status widgets (each drawn while its owner, +4, or its fading flag, +0x48, is
 // set: 0x6d5ef0 the gauges and the portrait, 0x6d5f3c the skill's), then the boss gauge by FUN_0043a770 (widget
 // 0x6d5fd4 in ecx). A part a mod hides is not drawn: the status widgets read as absent for the call, the gauge's
@@ -824,6 +846,7 @@ const Site kSites[] = {
     SITE(kOwned, kOwnedBytes, &hook_owned, &g_owned),     SITE(kHudDraw, kHudDrawBytes, &hook_hud_draw, &g_hud_draw),
     SITE(kBossDraw, kBossDrawBytes, &hook_boss_draw, &g_boss_draw), SITE(kScript, kScriptBytes, &hook_script, &g_script),
     SITE(kSkill, kSkillBytes, &hook_skill, &g_skill),     SITE(kJump, kJumpBytes, &hook_jump, &g_jump),
+    SITE(kFx, kFxBytes, &hook_fx, &g_fx),
     SITE(kSpawn, kSpawnBytes, &hook_spawn, &g_spawn),       SITE(kTouch, kTouchBytes, &hook_touch, &g_touch),
 };
 #undef SITE
@@ -1081,6 +1104,32 @@ bool puppet_effect(void* actor, const double* n) {
     g_effect(actor, args);
     g_effect_shown = false;
     return true;
+}
+
+// An effect that stays on an actor (a puppet's aura): as puppet_effect, attached, and the effect itself for
+// fx_end. The live effects (GoEffect) are the list at 0x7300bc, 0x7300c0 of them; one carries its id at +0x1d8 and ends when its
+// byte +0x1d4 is set.
+void* aura_effect(void* actor, int id, int* made_id) {
+    if (!g_hooked || !actor) return nullptr;
+    const float one = 1.0f;
+    std::int32_t args[10] = {id, 0, 0, 0, 0, 2, 0, 0, 0, 0};
+    std::memcpy(&args[4], &one, 4);
+    g_fx_made = nullptr;
+    g_fx_capture = g_effect_shown = true;
+    g_effect(actor, args);
+    g_fx_capture = g_effect_shown = false;
+    if (g_fx_made) *made_id = *reinterpret_cast<const std::int16_t*>(static_cast<const char*>(g_fx_made) + 0x1d8);   // (the factory's own id for it)
+    return g_fx_made;
+}
+bool fx_live(const void* fx, int id) {
+    void** pool = g_hooked && fx ? *reinterpret_cast<void***>(0x7300bc) : nullptr;
+    const int n = pool ? *reinterpret_cast<std::int32_t*>(0x7300c0) : 0;
+    for (int i = 0; i < n && i < 4096; ++i)
+        if (pool[i] == fx) return *reinterpret_cast<const std::int16_t*>(static_cast<const char*>(fx) + 0x1d8) == id;
+    return false;
+}
+void fx_end(void* fx, int id) {
+    if (fx_live(fx, id)) static_cast<char*>(fx)[0x1d4] = 1;
 }
 
 void set_exp_factor(float f) {

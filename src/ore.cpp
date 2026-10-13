@@ -762,8 +762,18 @@ int on_damage(bool dealt, int value, const void* victim, const void* attacker, c
     const int vcast = field<std::int32_t>(victim, kActCast);
     // A monster's hit found a mod's puppet (one the monsters may chase): puppet_struck, and no damage. A puppet is
     // built as the player's cast, so the game would otherwise take it for the player.
-    if (!dealt) {
-        if (const int pid = puppet_id(victim)) {
+    if (const int pid = puppet_id(victim)) {
+        const char* player = *reinterpret_cast<const char**>(0x74c09c);
+        if (dealt || attacker == player) {      // the player's own hit on a puppet made hittable: the mod is told, nothing else
+            emit(events::Event::named("puppet_hit").with("puppet", pid).with("atk", double(*reinterpret_cast<float*>(0x76a73c)))
+                     .with("power", source ? double(field<float>(source, 0xfc)) : 0.0).with("knock", 0.0)
+                     .with("class", source ? int(field<std::uint8_t>(source, 0x109)) : 0)
+                     .with("heading", player ? double(field<float>(player, 0x314)) * 57.29577951 : 0.0)
+                     .with("section", player ? field<std::int32_t>(player, 0x994) : 0),
+                 host().room());
+            return 0;
+        }
+        {
             events::Event e = events::Event::named("puppet_struck");
             e.with("puppet", pid).with("damage", value).with("atk", source ? double(field<float>(source, kActAtk)) : 0.0)
                 .with("power", source ? double(field<float>(source, 0xfc)) : 0.0);

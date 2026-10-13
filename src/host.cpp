@@ -87,6 +87,24 @@ __declspec(naked) void* __cdecl start_script(const char* /*name*/) {
 
 // FUN_00475710(ECX cast, EDX yaw in degrees; x, y, z, a stat argument; the caller pops): a monster of CASTINFO's
 // row `cast` built as the game's own spawners build one (the factory, the stats of its ENEMYINFO record).
+// FUN_0043a460: thiscall(the gauge's widget; the owner's id, a word not read, the maximum, the bar's scale), the HP
+// in xmm3: what a boss's handler calls each step to show its HP on the boss gauge.
+__declspec(naked) void __cdecl boss_gauge(int /*id*/, float /*hp*/, float /*max*/, float /*scale*/) {
+    __asm {
+        push ebp
+        mov  ebp, esp
+        movss xmm3, dword ptr [ebp + 12]
+        push dword ptr [ebp + 20]
+        push dword ptr [ebp + 16]
+        push 0
+        push dword ptr [ebp + 8]
+        mov  ecx, 0x6d5fd4
+        mov  eax, 0x43a460
+        call eax
+        pop  ebp
+        ret
+    }
+}
 __declspec(naked) char* __cdecl spawn_monster(int /*cast*/, int /*yaw*/, const float* /*pos*/) {
     __asm {
         push ebp
@@ -295,7 +313,9 @@ struct RetailHost : script::Host {
         if (room == at<std::int32_t>(0x76b91c + 4 * kFlagScene)) return;
         held_set().clear();
         puppet_set().clear();
-        room = at<std::int32_t>(0x76b91c + 4 * kFlagScene);
+        forms().clear();
+        auras().clear();
+        room =at<std::int32_t>(0x76b91c + 4 * kFlagScene);
     }
     // A cast's sprite sheet. CASTINFO +0x68 (the table at DAT_0074c11c, 0x200 a record, 186 records) is the cast's
     // animation script, an index of the ASO name table (185 names at 0x68a510: "m_100"); the sheet is the same name
@@ -310,6 +330,18 @@ struct RetailHost : script::Host {
             if (const char* s = at<const char*>(0x68a800 + 4 * i); s && _stricmp(s, name) == 0) return i;
         return -1;
     }
+    // A sheet of the game's by its name ("m_100", with or without an extension): its index in the AIA table, -1.
+    static int sheet_named(std::string name) {
+        name = fs::path(name).stem().string();
+        for (int i = 0; i < 269; ++i)
+            if (const char* s = at<const char*>(0x68a800 + 4 * i); s && _stricmp(s, name.c_str()) == 0) return i;
+        return -1;
+    }
+    // What a mod made of a monster (world.form, a variant): its kind and name, and whether the boss gauge is its.
+    struct Form { std::string kind, name; bool boss = false; };
+    static std::map<int, Form>& forms() { static std::map<int, Form> m; return m; }
+    struct Aura { int want = 0; void* fx = nullptr; int id = 0; };   // a puppet's: the effect asked for, the effect, the factory's id for it
+    static std::map<int, Aura>& auras() { static std::map<int, Aura> m; return m; }
     static char* find_puppet(int id) {
         held_room();
         const int n = at<std::int32_t>(kActorCount);
@@ -321,6 +353,19 @@ struct RetailHost : script::Host {
         held_room();
         if (on) held_set().insert(a);
         else held_set().erase(a);
+    }
+    // A mod's boss: the boss gauge is given its HP each step, as a boss's own handler does (FUN_0043a460 on the
+    // widget 0x6d5fd4); gone or dead, the gauge is let go.
+    static void boss_tick() {
+        if (forms().empty()) return;
+        held_room();
+        for (auto& [id, f] : forms()) {
+            if (!f.boss) continue;
+            char* a = find_monster(id);
+            if (a && in<float>(a, kAHp) > 0) { boss_gauge(id, in<float>(a, kAHp), in<float>(a, kAMaxHp), 4500.0f); continue; }   // (the bar's length: Nygtilger's)
+            f.boss = false;
+            if (at<std::int32_t>(0x6d5fd8) == id) at<std::int32_t>(0x6d5fd8) = 0;
+        }
     }
     static std::map<const void*, std::string>& spawned_by() { static std::map<const void*, std::string> m; return m; }   // world.spawn's, until world_tick
     // The monsters built since the last step: each passes the mods' "spawn" filter once (the multipliers of its
@@ -411,6 +456,13 @@ struct RetailHost : script::Host {
             std::memcpy(o.pos, a + kAPos, sizeof o.pos);
             o.yaw = in<float>(a, kAYaw) * 57.29577951f;
             o.hittable = (in<std::uint32_t>(a, kAKind) & kKindSolid) != 0;
+            o.ai = !held_set().count(a);
+            if (const char* info = at<const char*>(0x74c11c); info && o.cast >= 0 && o.cast < 186) o.name = info + std::size_t(o.cast) * 0x200;
+            if (const auto f = forms().find(o.id); f != forms().end()) {
+                o.kind = f->second.kind;
+                o.boss = f->second.boss;
+                if (!f->second.name.empty()) o.name = f->second.name;
+            }
             v.push_back(o);
         }
         return v;
@@ -621,7 +673,8 @@ struct RetailHost : script::Host {
             *out = {double(in<float>(player, kAPos)), double(in<float>(player, kAPos + 4)), double(in<float>(player, kAPos + 8)),
                     double(in<float>(player, kAYaw) * 57.29577951f), double(in<std::int32_t>(player, 0x9b0)), double(in<std::int32_t>(player, 0x9b8)),
                     double(in<std::int32_t>(player, 0x97c)),
-                    in<std::uint32_t>(player, 0x2b4) >> 24 ? double(in<std::uint32_t>(player, 0x2b4) & 0xffffffu) : 0.0, 0.0};
+                    in<std::uint32_t>(player, 0x2b4) >> 24 ? double(in<std::uint32_t>(player, 0x2b4) & 0xffffffu) : 0.0,
+                    (at<std::uint32_t>(0x76c198) & 0x20u) ? (flags()[150] == 3 ? 171.0 : 39.0) : 0.0};   // the Boost's aura while it runs
             return true;
         }
         if (op == "familiars") {                                                  // Hugo's Eyes: the actors of cast 176
@@ -654,6 +707,23 @@ struct RetailHost : script::Host {
             if (arg(6, -1) > 0) in<float>(a, 0x248) = float(std::clamp(arg(6), 0.2, 5.0));
             if (arg(7, -1) >= 0) glow(a, std::uint32_t(arg(7)) & 0xffffffu);
             if (std::isfinite(arg(8, NAN))) hold(a, arg(8) == 0);
+            const int id = actor_id(a);
+            held_room();                                                          // (the forms are the room's)
+            if (std::isfinite(arg(9, NAN))) {                                     // a mod's boss: the gauge shows its HP (boss_tick)
+                forms()[id].boss = arg(9) != 0;
+                if (arg(9) == 0 && at<std::int32_t>(0x6d5fd8) == id) at<std::int32_t>(0x6d5fd8) = 0;
+            }
+            if (const std::size_t tab = text.find('\t'); tab != std::string::npos) {   // "kind \t name [\t sheet]"
+                const std::size_t tab2 = text.find('\t', tab + 1);
+                Form& f = forms()[id];
+                if (tab > 0) f.kind = text.substr(0, tab);
+                const std::string name = text.substr(tab + 1, tab2 == std::string::npos ? std::string::npos : tab2 - tab - 1);
+                if (!name.empty()) f.name = name;
+                // The look: a sheet of the game's own by its name. (A sheet file of the mod's is not loaded: the
+                // game draws from its table of 269 names.)
+                if (tab2 != std::string::npos)
+                    if (const int sheet = sheet_named(text.substr(tab2 + 1)); sheet >= 0) in<std::int32_t>(a, 0x97c) = sheet;
+            }
             return true;
         }
         if (op == "world_snapshot") {                                             // 12 numbers a monster: id cast level x y z yaw hp max_hp tag frame sheet
@@ -743,6 +813,7 @@ struct RetailHost : script::Host {
             char* a = find_puppet(int(arg(0, -1)));
             if (!a) return false;
             if (op == "puppet_remove") {
+                if (const auto au = auras().find(actor_id(a)); au != auras().end()) { fx_end(au->second.fx, au->second.id); auras().erase(au); }
                 in<std::uint8_t>(a, kADead) |= 2;
                 puppet_set().erase(a);
                 held_set().erase(a);
@@ -755,6 +826,20 @@ struct RetailHost : script::Host {
             if (n.size() > 6 && std::isfinite(n[6])) in<std::int32_t>(a, 0x9b8) = (std::max)(0, int(n[6]));
             if (n.size() > 7 && std::isfinite(n[7]) && n[7] >= 0 && n[7] < 269) in<std::int32_t>(a, 0x97c) = int(n[7]);
             if (n.size() > 10 && std::isfinite(n[10])) glow(a, std::uint32_t((std::max)(0.0, n[10])) & 0xffffffu);
+            if (n.size() > 8 && std::isfinite(n[8])) {                            // hittable: a body the player's hits find (puppet_hit)
+                const std::uint32_t body = kKindEnemy | kKindSolid;
+                in<std::uint32_t>(a, kAKind) = n[8] != 0 ? (in<std::uint32_t>(a, kAKind) | body) : (in<std::uint32_t>(a, kAKind) & ~body);
+                in<float>(a, kAHp) = in<float>(a, kAMaxHp) = 1.0f;
+            }
+            if (n.size() > 11 && std::isfinite(n[11])) {                          // aura: an effect that follows it, 0 = none
+                auto& au = auras()[actor_id(a)];
+                const int want = int(n[11]);
+                if (au.want != want || (want > 0 && !fx_live(au.fx, au.id))) {
+                    fx_end(au.fx, au.id);
+                    au = Aura{want, nullptr, 0};
+                    if (want > 0) au.fx = aura_effect(a, want, &au.id);
+                }
+            }
             return true;
         }
         if (op == "show_bullet") return alive && n.size() >= 19 && ore::show_bullet(n.data());
@@ -1197,6 +1282,7 @@ int exit_filter(int scene) {
 void world_tick() {
     if (!hooked() || !*reinterpret_cast<char**>(0x74c09c)) return;
     RetailHost::new_monsters();
+    RetailHost::boss_tick();
 }
 int puppet_id(const void* actor) {
     const auto& s = RetailHost::puppet_set();

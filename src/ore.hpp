@@ -45,6 +45,9 @@ int on_damage(bool dealt, int value, const void* victim, const void* attacker, c
 void on_bullet(const void* owner, int kind, const std::uint32_t* args);
 void on_effect(const void* actor, const std::int32_t* args);                      // an animation script makes an effect (FUN_004496f0)
 bool puppet_effect(void* actor, const double* n);                                // hooks.cpp: (id, fwd, angle, voff, scale, attach) on that actor
+void* aura_effect(void* actor, int id, int* made_id);                                          // hooks.cpp: an effect that stays on that actor; -> it
+bool fx_live(const void* fx, int id);                                             // hooks.cpp: that effect still runs
+void fx_end(void* fx, int id);
 bool play_music_file(const std::string& file);                                   // hooks.cpp: an Ogg file of a mod's as the game's music
 bool load_slot(int slot);                                                        // hooks.cpp: the Load page's own read of a save, 0-based
 bool show_bullet(const double* n);                                               // hooks.cpp: the 19 numbers of a player_bullet event, as a bullet that hurts nobody
