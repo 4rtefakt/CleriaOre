@@ -305,10 +305,17 @@ FrameFn g_frame = nullptr;
 bool g_hooked = false;
 
 // While the F1 panel is open the steps are idle ones, as the game runs a frame it has no step for.
+// A mod's game.speed: the real steps are run more or less often than the game asks for them.
 void __fastcall hook_step(char active, char arg) {
-    if (ui_holds_game()) active = 0;
-    g_step(active, arg);
-    if (active) on_tick();
+    if (ui_holds_game() || paused()) active = 0;
+    if (!active) return g_step(0, arg);
+    static double due = 0;
+    due += speed();
+    if (due < 1.0) return g_step(0, arg);   // a slowed game: an idle step
+    for (; due >= 1.0; due -= 1.0) {
+        g_step(1, arg);
+        on_tick();
+    }
 }
 
 int __cdecl hook_frame() {

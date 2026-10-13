@@ -66,6 +66,11 @@ std::pair<double, double> modifier(const std::string& mod, int stat);
 float modified(int stat, float base);                // (the game's + the mods' adds) x their muls, within the game's limits
 float base_stat(int stat);                           // hooks.cpp: the game's own value, before the mods
 void recompute_stats();                              // hooks.cpp: the game's recompute, now
+// A mod's hold on the game (game.pause) and its factor of the game's speed (game.speed), per mod.
+void set_pause(const std::string& mod, bool on);
+bool paused();                                       // some mod holds the game
+void set_speed(const std::string& mod, double factor);
+double speed();                                      // the product of the mods' factors, 0.1 .. 4
 // For the overlay (ui.cpp, the game thread):
 std::vector<cleria::mods::Mod>& mod_list();                           // every mod found, in load order
 std::vector<std::unique_ptr<cleria::script::Mod>>& scripts();         // the started scripts

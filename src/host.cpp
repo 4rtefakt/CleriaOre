@@ -44,11 +44,43 @@ constexpr std::uintptr_t kItems = 0x76f1c0;       // INVINFO in memory: 0xb8 a r
 constexpr std::uintptr_t kSaveSlot = 0x74ac3e;    // byte: the slot the save writer's callers set first
 constexpr int kFlagBoosting = 141, kFlagFight = 156, kFlagControl = 185, kFlagArena = 190, kFlagRun = 193, kFlagWarpTo = 137;
 
+// The actors (CleriaCore's arch_re/WIRING.md): the live list, in spawn order, and what a record holds.
+constexpr std::uintptr_t kActors = 0x730098, kActorCount = 0x73009c;
+constexpr std::size_t kAKind = 0x60, kAMaxHp = 0x94, kAHp = 0x98, kAAtk = 0xa4, kADef = 0xa8, kALevel = 0xc8, kACast = 0x124, kAId = 0x128,
+                      kAPos = 0x50, kAYaw = 0x314, kADead = 0x11;
+constexpr std::uint32_t kKindEnemy = 0x8, kKindSolid = 0x80;
+// The camera the game publishes each frame (camera_re/CAMERA.md): a left-handed look-at, Y up.
+constexpr std::uintptr_t kCamTarget = 0x76a160, kCamEye = 0x76a16c, kCamFov = 0x7b38f4, kCamAspect = 0x7b38f8;
+constexpr std::uintptr_t kRandom = 0x74622c;      // the game's one generator: xorshift128, four words
+
 // The game's own functions (of the build hooks.cpp checks).
 const auto set_level = reinterpret_cast<void(__fastcall*)(unsigned level)>(0x4200f0);         // level, EXP at its threshold, stats
 const auto set_tier = reinterpret_cast<void(__fastcall*)(unsigned slot, int tier)>(0x4201d0); // a weapon slot's tier, stats
 const auto level_ups = reinterpret_cast<void(__cdecl*)()>(0x420c40);                          // the level-ups the EXP total asks for, stats
 const auto write_save = reinterpret_cast<int(__fastcall*)(char* file)>(0x42e9a0);             // hooks.cpp hooks it: the sidecar follows
+const auto sync_gauges = reinterpret_cast<void(__cdecl*)()>(0x4fa0e0);                        // the HUD's HP and MP gauges take the record's values
+const auto play_sound = reinterpret_cast<void(__fastcall*)(int id, int volume)>(0x43a040);    // a sound of EFFECTDEF, 0x400 = its own volume
+
+// FUN_00475710(ECX cast, EDX yaw in degrees; x, y, z, a stat argument; the caller pops): a monster of CASTINFO's
+// row `cast` built as the game's own spawners build one (the factory, the stats of its ENEMYINFO record).
+__declspec(naked) char* __cdecl spawn_monster(int /*cast*/, int /*yaw*/, const float* /*pos*/) {
+    __asm {
+        push ebp
+        mov  ebp, esp
+        mov  eax, dword ptr [ebp + 16]
+        push 0
+        push dword ptr [eax + 8]
+        push dword ptr [eax + 4]
+        push dword ptr [eax]
+        mov  ecx, dword ptr [ebp + 8]
+        mov  edx, dword ptr [ebp + 12]
+        mov  eax, 0x475710
+        call eax
+        add  esp, 16
+        pop  ebp
+        ret
+    }
+}
 
 // The Crystal's warp, as its menu confirms one (0x5accaf..0x5acd16): the target statue is already in
 // g_flags[137]. From the retail Archipelago mod (hook_ap.cpp do_warp_native), where it is proven.
@@ -186,6 +218,7 @@ struct RetailHost : script::Host {
         if (!in_game()) return "title";
         if (ui_panel_open()) return "panel";
         if (const script::Mod* m = window_mod(); m && m->window()->pause) return "window";
+        if (paused()) return "held";
         if (at<float>(kHp) < 1) return "gameover";
         return frozen() ? "cutscene" : "play";
     }
@@ -194,6 +227,152 @@ struct RetailHost : script::Host {
     bool key_known(const std::string& name, bool pad) override { return ui_key_known(name, pad); }
     void set_modifier(const std::string& mod, int stat, double add, double mul) override { ore::set_modifier(mod, stat, add, mul); }
     std::pair<double, double> modifier(const std::string& mod, int stat) override { return ore::modifier(mod, stat); }
+    // ---- cleria.world: the room's monsters ----
+    static char* actor_at(int i) { return at<char**>(kActors)[i]; }
+    template <class T>
+    static T& in(char* actor, std::size_t off) { return *reinterpret_cast<T*>(actor + off); }
+    static bool monster(char* a) {
+        return a && (in<std::uint32_t>(a, kAKind) & kKindEnemy) && in<std::int32_t>(a, kACast) != 13 && in<float>(a, kAHp) >= 1.0f &&
+               !(in<std::uint8_t>(a, kADead) & 2);
+    }
+    // A monster by the id world.actors() gave it: its place in the live list + 1 would move as others die, so the
+    // id is the record's own address.
+    static char* find_monster(int id) {
+        const int n = at<std::int32_t>(kActorCount);
+        for (int i = 0; i < n && i < 256; ++i)
+            if (char* a = actor_at(i); a && int(reinterpret_cast<std::uintptr_t>(a)) == id && monster(a)) return a;
+        return nullptr;
+    }
+    std::vector<ActorInfo> actors() override {
+        std::vector<ActorInfo> v;
+        if (!in_game()) return v;
+        const int n = at<std::int32_t>(kActorCount);
+        for (int i = 0; i < n && i < 256; ++i) {
+            char* a = actor_at(i);
+            if (!monster(a)) continue;
+            ActorInfo o;
+            o.id = int(reinterpret_cast<std::uintptr_t>(a));
+            o.cast = in<std::int32_t>(a, kACast);
+            o.level = in<std::int32_t>(a, kALevel);
+            o.hp = in<float>(a, kAHp);
+            o.max_hp = in<float>(a, kAMaxHp);
+            o.atk = in<float>(a, kAAtk);
+            o.def = in<float>(a, kADef);
+            std::memcpy(o.pos, a + kAPos, sizeof o.pos);
+            o.yaw = in<float>(a, kAYaw) * 57.29577951f;
+            o.hittable = (in<std::uint32_t>(a, kAKind) & kKindSolid) != 0;
+            v.push_back(o);
+        }
+        return v;
+    }
+    // A world point on the screen: the game's view (eye, target, Y up) and its perspective (the vertical field of
+    // view and the aspect it gives Direct3D), as fractions of the picture from its top left.
+    bool to_screen(float x, float y, float z, float* sx, float* sy) override {
+        if (!in_game()) return false;
+        const float* eye = &at<float>(kCamEye);
+        const float* tgt = &at<float>(kCamTarget);
+        float f[3] = {tgt[0] - eye[0], tgt[1] - eye[1], tgt[2] - eye[2]};
+        const float fl = std::sqrt(f[0] * f[0] + f[1] * f[1] + f[2] * f[2]);
+        if (fl < 1e-4f) return false;
+        for (float& c : f) c /= fl;
+        float r[3] = {f[2], 0.0f, -f[0]};                         // up x forward, up = (0, 1, 0)
+        const float rl = std::sqrt(r[0] * r[0] + r[2] * r[2]);
+        if (rl < 1e-4f) return false;
+        r[0] /= rl; r[2] /= rl;
+        const float u[3] = {f[1] * r[2] - f[2] * r[1], f[2] * r[0] - f[0] * r[2], f[0] * r[1] - f[1] * r[0]};   // forward x right
+        const float d[3] = {x - eye[0], y - eye[1], z - eye[2]};
+        const float cz = d[0] * f[0] + d[1] * f[1] + d[2] * f[2];
+        if (cz <= 0.05f) return false;                            // behind the camera
+        const float cx = d[0] * r[0] + d[1] * r[1] + d[2] * r[2], cy = d[0] * u[0] + d[1] * u[1] + d[2] * u[2];
+        const float t = std::tan(at<float>(kCamFov) * 0.5f), aspect = at<float>(kCamAspect);
+        if (t < 1e-4f || aspect < 1e-4f) return false;
+        *sx = 0.5f + 0.5f * cx / (cz * t * aspect);
+        *sy = 0.5f - 0.5f * cy / (cz * t);
+        return true;
+    }
+    // The writes of API 7 the retail host backs; any other answers false, as with no game.
+    bool game_op(const std::string& mod, const std::string& op, const std::vector<double>& n, const std::string&, std::vector<double>* out) override {
+        auto arg = [&](std::size_t i, double d = 0.0) { return i < n.size() ? n[i] : d; };
+        if (op == "pause") { set_pause(mod, arg(0) != 0); return true; }          // these two hold with or without a game
+        if (op == "speed") { set_speed(mod, arg(0, 1.0)); return true; }
+        if (!in_game()) return false;
+        char* player = at<char*>(kPlayer);
+        const bool alive = at<float>(kHp) >= 1;
+        if (op == "set_position") {
+            if (!alive || n.size() < 3) return false;
+            const float p[3] = {float(n[0]), float(n[1]), float(n[2])};
+            std::memcpy(player + kAPos, p, sizeof p);
+            std::memcpy(player + 0x3d4, p, sizeof p);                             // the previous frame's, so nothing sweeps between the two
+            std::memcpy(player + 0x808, p, sizeof p);                             // the last good place
+            in<float>(player, 0x330) = 0;                                         // no fall or jump carried over
+            if (n.size() >= 4) in<float>(player, kAYaw) = float(n[3]) / 57.29577951f;
+            return true;
+        }
+        if (op == "set_mp") {
+            at<float>(kMp) = float(std::clamp(arg(0), 0.0, double(at<float>(kMaxMp))));
+            in<float>(player, 0xa0) = at<float>(kMp);
+            sync_gauges();
+            return true;
+        }
+        if (op == "set_boost") { at<float>(kBoost) = float(std::clamp(arg(0), 0.0, 30000.0)); return true; }
+        if (op == "set_exp") {
+            at<float>(kExp) = float((std::max)(arg(0), 0.0));
+            level_ups();
+            return true;
+        }
+        if (op == "heal" || op == "hurt") {                                       // HP given or taken as it is; 0 is the death
+            if (!alive || arg(0) < 0) return false;
+            set_stat(Stat::Hp, at<float>(kHp) + (op == "heal" ? arg(0) : -arg(0)));
+            return true;
+        }
+        if (op == "seed_random") {
+            std::uint32_t* rs = &at<std::uint32_t>(kRandom);
+            const std::uint32_t s = std::uint32_t(arg(0));
+            rs[0] = s ? s : 1u; rs[1] = 362436069u; rs[2] = 521288629u; rs[3] = 88675123u;
+            return true;
+        }
+        if (op == "set_actor") {                                                  // hp (at least 1), position, heading
+            char* a = find_monster(int(arg(0, -1)));
+            if (!a) return false;
+            if (n.size() > 1 && std::isfinite(n[1])) in<float>(a, kAHp) = std::clamp(float(n[1]), 1.0f, (std::max)(1.0f, in<float>(a, kAMaxHp)));
+            for (std::size_t k = 0; k < 3; ++k)
+                if (n.size() > 2 + k && std::isfinite(n[2 + k])) in<float>(a, kAPos + 4 * k) = float(n[2 + k]);
+            if (n.size() > 5 && std::isfinite(n[5])) in<float>(a, kAYaw) = float(n[5]) / 57.29577951f;
+            return true;
+        }
+        if (op == "remove_actor") {                                               // gone at the game's next sweep: no EXP, no drops
+            char* a = find_monster(int(arg(0, -1)));
+            if (!a) return false;
+            in<std::uint32_t>(a, kAKind) &= ~kKindSolid;                          // as the game's own kill paths do first
+            in<std::uint8_t>(a, kADead) |= 2;
+            return true;
+        }
+        if (op == "spawn_actor") {
+            // (cast, x, y, z, level, yaw, group). A cast the room already holds: the game loads a monster's
+            // model and sprites with the room, and one it has not loaded has nothing to draw with.
+            if (n.size() < 4 || !out) return false;
+            const int cast = int(n[0]);
+            bool loaded = false;
+            const int count = at<std::int32_t>(kActorCount);
+            for (int i = 0; i < count && i < 256 && !loaded; ++i)
+                if (char* a = actor_at(i)) loaded = (in<std::uint32_t>(a, kAKind) & kKindEnemy) && in<std::int32_t>(a, kACast) == cast;
+            if (!loaded || count >= 120) return false;
+            const float pos[3] = {float(n[1]), float(n[2]), float(n[3])};
+            char* a = spawn_monster(cast, int(arg(5)), pos);
+            if (!a) return false;
+            *out = {double(int(reinterpret_cast<std::uintptr_t>(a)))};
+            return true;
+        }
+        if (op == "se") { play_sound(int(arg(0)), int(std::clamp(arg(1, 1.0), 0.0, 4.0) * 0x400)); return true; }
+        if (op == "cam_get") {
+            if (!out) return false;
+            const float* e = &at<float>(kCamEye);
+            const float* t = &at<float>(kCamTarget);
+            *out = {e[0], e[1], e[2], t[0], t[1], t[2], at<float>(kCamFov), 1.0, 1.0};
+            return true;
+        }
+        return false;
+    }
     std::vector<ModInfo> mod_list() override {
         std::vector<ModInfo> out;
         for (const mods::Mod& m : ore::mod_list())
@@ -316,6 +495,7 @@ struct RetailHost : script::Host {
             case Stat::Hp:
                 at<float>(kHp) = float(std::clamp(i, 0, int(at<float>(kMaxHp))));
                 *reinterpret_cast<float*>(at<char*>(kPlayer) + 0x98) = at<float>(kHp);
+                sync_gauges();
                 break;
             case Stat::Sp: at<std::int32_t>(kSp) = std::clamp(i, 0, 999999); break;
             case Stat::Level: set_level(unsigned(std::clamp(i, 1, 60))); break;

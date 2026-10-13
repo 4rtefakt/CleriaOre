@@ -46,6 +46,8 @@ std::set<std::string> g_reload;        // scripts to start afresh at the next fr
 std::vector<std::string> g_log_tail;   // the last lines the scripts logged (cleria.log_lines)
 std::string g_state;                   // game.state() at the last tick, for state_changed
 std::map<std::string, std::array<std::pair<double, double>, 3>> g_stat_mods;   // per mod: {add, mul} of max HP, ATK, DEF
+std::set<std::string> g_pause;         // the mods that hold the game
+std::map<std::string, double> g_speed; // a mod's factor of the game's speed
 
 // "yso_05.bin" -> 5: the file number CleriaCore calls the slot; -1 for a name without one.
 int slot_of(const char* file) {
@@ -242,6 +244,20 @@ void start(bool hooked) {
 Sidecar& sidecar() { return g_sidecar; }
 
 void request_reload(const std::string& mod) { g_reload.insert(mod); }
+void set_pause(const std::string& mod, bool on) {
+    if (on) g_pause.insert(mod);
+    else g_pause.erase(mod);
+}
+bool paused() { return !g_pause.empty(); }
+void set_speed(const std::string& mod, double factor) {
+    if (factor == 1.0) g_speed.erase(mod);
+    else g_speed[mod] = factor;
+}
+double speed() {
+    double f = 1.0;
+    for (const auto& [id, x] : g_speed) f *= x;
+    return std::clamp(f, 0.1, 4.0);
+}
 const std::vector<std::string>& log_tail() { return g_log_tail; }
 void log_script(const std::string& mod, const std::string& text) {
     log("[lua:%s] %s", mod.c_str(), text.c_str());
@@ -301,6 +317,8 @@ void reload(const std::string& id) {
             if (m.m.id == id) def = &m;
         if (!def) return;
         g_stat_mods.erase(id);
+        g_pause.erase(id);
+        g_speed.erase(id);
         recompute_stats();
         up.reset();
         up = std::make_unique<script::Mod>(def->m.id, def->label(), def->m.version, def->root, host());

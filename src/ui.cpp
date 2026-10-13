@@ -4,7 +4,10 @@
 #include <d3d9.h>
 
 #include <chrono>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <share.h>
 #include <map>
 
 #include "MinHook.h"
@@ -84,6 +87,43 @@ void mods_page(ui::List& L) {
 }
 
 void init(IDirect3DDevice9* dev);
+
+// ---- the drive: the game steered from outside, for tests (only with CLERIAORE_DRIVE set when the game starts) ----
+// Each frame cleriaore/drive/keys.txt is read: the DirectInput keys held (hex DIK codes, "D0 1C"), fed to the
+// game whether its window has the focus or not; and cleriaore/drive/cmd.txt: one cleria.command a line
+// ("name args"), run and the file removed.
+const bool g_drive = std::getenv("CLERIAORE_DRIVE") != nullptr;
+unsigned char g_drive_keys[256] = {};
+bool g_drive_mouse[4] = {};   // codes 100..103: the mouse buttons
+void drive_poll() {
+    if (!g_drive) return;
+    std::memset(g_drive_keys, 0, sizeof g_drive_keys);
+    std::memset(g_drive_mouse, 0, sizeof g_drive_mouse);
+    if (std::FILE* f = _wfsopen((dir() / "drive" / "keys.txt").c_str(), L"r", _SH_DENYNO)) {
+        unsigned k = 0;
+        while (std::fscanf(f, "%x", &k) == 1)
+            if (k < 256) g_drive_keys[k] = 0x80;
+            else if (k < 0x104) g_drive_mouse[k - 0x100] = true;
+        std::fclose(f);
+    }
+    const fs::path cmd = dir() / "drive" / "cmd.txt";
+    if (std::FILE* f = _wfsopen(cmd.c_str(), L"r", _SH_DENYNO)) {
+        std::vector<std::string> lines;
+        char line[1024];
+        while (std::fgets(line, sizeof line, f)) lines.emplace_back(line);
+        std::fclose(f);
+        std::error_code ec;
+        if (!fs::remove(cmd, ec)) return;   // still being written: next frame
+        for (std::string& l : lines) {
+            while (!l.empty() && (l.back() == '\n' || l.back() == '\r')) l.pop_back();
+            const std::size_t sp = l.find(' ');
+            if (l.empty()) continue;
+            if (l == "panel") { g_panel.open = !g_panel.open; continue; }
+            const bool ok = host().run_command(l.substr(0, sp), sp == std::string::npos ? std::string() : l.substr(sp + 1));
+            log("[drive] %s%s", l.c_str(), ok ? "" : ": no such command");
+        }
+    }
+}
 
 // ---- keys by SDL's names (cleria.input) ----
 struct KeyName { ImGuiKey key; const char* name; };
@@ -165,6 +205,7 @@ HRESULT WINAPI hook_end_scene(IDirect3DDevice9* dev) {
     g_hud = nullptr;
     draw_notice(ImGui::GetBackgroundDrawList(), w, h);
 
+    drive_poll();
     if (ImGui::IsKeyPressed(ImGuiKey_F1, false)) g_panel.open = !g_panel.open;
     const bool was_open = g_panel.open || window_mod();
     io.MouseDrawCursor = was_open;
@@ -232,8 +273,18 @@ GetDeviceStateFn g_get_device_state = nullptr;
 
 // Only the keyboard (its state is 256 key bytes): a stick's rest is a mid value, not 0.
 HRESULT WINAPI hook_get_device_state(void* self, DWORD size, void* data) {
-    const HRESULT hr = g_get_device_state(self, size, data);
+    HRESULT hr = g_get_device_state(self, size, data);
     if (data && size == 256 && (g_panel.open || g_modal || GetTickCount() - g_closed_at < 250)) std::memset(data, 0, size);
+    if (g_drive && data && size == 256) {   // the drive's keys, with or without the focus
+        if (FAILED(hr)) { std::memset(data, 0, size); hr = S_OK; }
+        for (int k = 0; k < 256; ++k)
+            if (g_drive_keys[k]) static_cast<unsigned char*>(data)[k] = 0x80;
+    }
+    if (g_drive && data && (size == 16 || size == 20)) {   // DIMOUSESTATE: three axes, then the buttons
+        if (FAILED(hr)) { std::memset(data, 0, size); hr = S_OK; }
+        for (int k = 0; k < 4; ++k)
+            if (g_drive_mouse[k]) static_cast<unsigned char*>(data)[12 + k] = 0x80;
+    }
     return hr;
 }
 
