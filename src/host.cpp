@@ -8,6 +8,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
+#include <sstream>
 #include <cstring>
 #include <map>
 #include <set>
@@ -249,7 +250,67 @@ struct RetailHost : script::Host {
         if (json_text.empty()) bus_.erase(key);
         else if (bus_.size() < 4096 || bus_.count(key)) bus_[key] = json_text;
     }
+    // A new game from the title, as its Difficulty page starts one: the character (flag 150), the difficulty's three
+    // bytes, the story's mode, the game's own reset (FUN_0041fd10), then the first scene. `extra` 0 / 1 picks the
+    // character's Normal or Extra version (0x74c0dc Yunica, 0x74c0d8 Hugo, 0x74c0d4 Toal), -1 leaves it. `room`
+    // is the scene to begin in: "S_0000" is the game's own beginning.
+    bool new_game(int ch, int diff, int extra, const std::string& room, const std::vector<std::pair<int, int>>& set = {}) {
+        const char* first = scene_rec(room);
+        if (!hooked() || game_state() != "title" || !first) return false;
+        at<std::int32_t>(0x76b91c + 4 * 150) = ch;
+        at<std::uint8_t>(0x74ac3c) = std::uint8_t(diff == 3 ? 1 : diff == 4 ? 2 : 0);
+        at<std::uint8_t>(0x74e685) = diff <= 1;
+        at<std::uint8_t>(0x74e684) = diff == 0;
+        at<std::uint8_t>(0x74e25f) = 0;
+        at<std::uint8_t>(0x74e25e) = 0;                                       // the story, not Time Attack or the Arena
+        if (extra >= 0) at<std::int32_t>(ch == 1 ? 0x74c0dc : ch == 2 ? 0x74c0d8 : 0x74c0d4) = extra != 0;
+        reinterpret_cast<void(__cdecl*)()>(0x41fd10)();
+        for (const auto& [flag, value] : set)                                 // (after the reset, before the first room's script)
+            if (flag >= 0 && flag < 0x200) at<std::int32_t>(0x76b91c + 4 * flag) = value;
+        // The title's own tick commits its staged scene when its fade ends; without the title object's flag
+        // nothing would, so the change is asked for here, at once.
+        at<std::int32_t>(0x769fb8) = *reinterpret_cast<const std::uint16_t*>(first);
+        std::memset(&at<char>(0x769fbc), 0, 0x194);
+        stop_bgm(1500);
+        return request_scene(*reinterpret_cast<const std::uint16_t*>(first), 1) == 0;
+    }
+    // The loader's own commands, for what the mod API has no call for (cleria.mods.command(name, args)):
+    //   ore.title new_game                      the title's own New Game, past a mod's "title_new_game" command
+    //   ore.new_game character=2 difficulty=2 extra=0 room=S_1000 flags=246:1,300:1
+    //                                           a new game at once (each key optional): the scene it begins in, and
+    //                                           flags set after the game's reset, before that scene's script
+    bool own_command(const std::string& name, const std::string& args, bool* ran) {
+        if (name.rfind("ore.", 0) != 0) return false;
+        *ran = false;
+        if (name == "ore.title") {
+            if (args != "new_game" || game_state() != "title") return true;
+            title_run(0x575c10);
+            *ran = true;
+        } else if (name == "ore.new_game") {
+            int ch = 1, diff = 2, extra = -1;
+            std::string room = "S_0000";
+            std::vector<std::pair<int, int>> set;
+            std::istringstream in(args);
+            for (std::string kv; in >> kv;) {
+                const std::size_t eq = kv.find('=');
+                if (eq == std::string::npos) continue;
+                const std::string k = kv.substr(0, eq), v = kv.substr(eq + 1);
+                if (k == "character") ch = std::clamp(std::atoi(v.c_str()), 1, 3);
+                else if (k == "difficulty") diff = std::clamp(std::atoi(v.c_str()), 0, 4);
+                else if (k == "extra") extra = std::atoi(v.c_str()) != 0;
+                else if (k == "room") room = v;
+                else if (k == "flags") {                                      // flags=246:1,300:1
+                    std::istringstream fs_(v);
+                    for (std::string one; std::getline(fs_, one, ',');)
+                        if (const std::size_t c = one.find(':'); c != std::string::npos) set.emplace_back(std::atoi(one.c_str()), std::atoi(one.c_str() + c + 1));
+                }
+            }
+            *ran = new_game(ch, diff, extra, room, set);
+        }
+        return true;
+    }
     bool run_command(const std::string& name, const std::string& args) override {
+        if (bool ran = false; own_command(name, args, &ran)) return ran;
         for (auto& m : scripts())
             if (m->ok() && m->has_command(name)) { m->command(name, args); return true; }
         return false;
@@ -514,24 +575,7 @@ struct RetailHost : script::Host {
         // 150) and the difficulty's three cells, the game's own new-game init (FUN_0041fd10, which keeps the
         // character), then the title's "finish" (FUN_005758f0): a fade-out to the scene s_00\s_0000. From the title
         // only: (character 1..3, difficulty 0 Very Easy .. 4 Nightmare).
-        if (op == "new_game") {
-            const char* first = scene_rec("S_0000");
-            if (!hooked() || game_state() != "title" || !first) return false;
-            const int ch = std::clamp(int(arg(0, 1)), 1, 3), diff = std::clamp(int(arg(1, 2)), 0, 4);
-            at<std::int32_t>(0x76b91c + 4 * 150) = ch;
-            at<std::uint8_t>(0x74ac3c) = std::uint8_t(diff == 3 ? 1 : diff == 4 ? 2 : 0);
-            at<std::uint8_t>(0x74e685) = diff <= 1;
-            at<std::uint8_t>(0x74e684) = diff == 0;
-            at<std::uint8_t>(0x74e25f) = 0;
-            at<std::uint8_t>(0x74e25e) = 0;                                       // the story, not Time Attack or the Arena
-            reinterpret_cast<void(__cdecl*)()>(0x41fd10)();
-            // The title's own tick commits its staged scene when its fade ends; without the title object's flag
-            // nothing would, so the change is asked for here, at once.
-            at<std::int32_t>(0x769fb8) = *reinterpret_cast<const std::uint16_t*>(first);
-            std::memset(&at<char>(0x769fbc), 0, 0x194);
-            stop_bgm(1500);
-            return request_scene(*reinterpret_cast<const std::uint16_t*>(first), 1) == 0;
-        }
+        if (op == "new_game") return new_game(std::clamp(int(arg(0, 1)), 1, 3), std::clamp(int(arg(1, 2)), 0, 4), -1, "S_0000");
         if (!in_game()) return false;
         char* player = at<char*>(kPlayer);
         const bool alive = at<float>(kHp) >= 1;

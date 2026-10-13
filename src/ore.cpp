@@ -553,6 +553,15 @@ int on_blessing(int index) {
     return d.action == GrantDecision::Action::Replace && d.index >= 0 && d.index <= 0x21 ? d.index : index;
 }
 void emit_named(const events::Event& e) { emit(e, host().room()); }
+// A row of the title's list was chosen. A mod that has a command named "title_<item>" (cleria.command) takes the
+// row over: its command runs in the row's place. It may hand it back later (cleria.mods.command("ore.title", item)).
+bool on_title_item(const char* item) {
+    if (WaitForSingleObject(g_started, 0) != WAIT_OBJECT_0) return true;
+    const std::string name = std::string("title_") + item;
+    for (auto& m : g_scripts)
+        if (m->ok() && m->has_command(name)) { m->command(name, std::string()); return false; }
+    return true;
+}
 // One of the game's scripts is about to start by name (FUN_00434970; `from` is the caller's return address): the
 // mods' "script" filter may refuse it, then script_started; the action button's start (the two calls of
 // FUN_00460470; the object's own name lies 0x34 after its script's) is also interact, and statue_used.
@@ -622,6 +631,7 @@ void on_tick() {
     g_shop = false;
     for (auto& m : g_scripts) g_shop = g_shop || (m->ok() && m->has_shop_filter());
     tune_tick();
+    title_tick();
     cam_tick();
     world_tick();
     script::Host& h = host();

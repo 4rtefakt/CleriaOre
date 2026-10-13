@@ -408,9 +408,22 @@ constexpr std::uint8_t kListAddBytes[] = {0x56, 0x8b, 0xf1, 0x8b, 0x96, 0xb0, 0x
 void(__thiscall* g_list_open)(void* self, float* origin, const char* caption, int) = nullptr;
 void(__thiscall* g_list_add)(void* self, const wchar_t* label, void* callback) = nullptr;
 std::uint8_t g_mods_row = 0;            // its place in the list, which the title remembers its cursor by (0x74ac3d)
+// The game keeps that byte with its settings: it is given the row only for the list's next build and then put back,
+// so a game without the loader does not start with its cursor one row off.
+std::uint8_t g_cursor_was = 0;
+bool g_cursor_lent = false;
+int g_cursor_back = 0;                  // steps until it is put back
 void __cdecl title_mods() {
+    if (!g_cursor_lent && g_cursor_back == 0) g_cursor_was = *reinterpret_cast<std::uint8_t*>(0x74ac3d);
     *reinterpret_cast<std::uint8_t*>(0x74ac3d) = g_mods_row;
+    g_cursor_lent = true;
     ui_open_panel();
+}
+// The title's New Game row asks the mods first (a mod's command "title_new_game" takes it over); taken, the row does
+// nothing and the list stays. title_run calls a row's own callback at the game's next step, as the list would.
+std::uintptr_t g_title_run = 0;
+void __cdecl title_new_game() {
+    if (on_title_item("new_game")) reinterpret_cast<void(__cdecl*)()>(0x575c10)();
 }
 void __fastcall hook_list_open(void* self, void*, float* origin, const char* caption, int z) {
     if (caption == reinterpret_cast<const char*>(0x6a06e4) && *reinterpret_cast<std::uint8_t*>(0x74e259) == 0 && origin) origin[1] -= 16.0f * 1.6f;
@@ -420,9 +433,12 @@ void __fastcall hook_list_add(void* self, void*, const wchar_t* label, void* cal
     if (callback == reinterpret_cast<void*>(0x576000)) {
         g_mods_row = std::uint8_t(*reinterpret_cast<std::int32_t*>(static_cast<char*>(self) + 0x1fb0) - 1);   // the rows so far, less the caption's
         g_list_add(self, L"Mods", &title_mods);
+        if (std::exchange(g_cursor_lent, false)) g_cursor_back = 3;
     }
+    if (callback == reinterpret_cast<void*>(0x575c10)) callback = &title_new_game;
     g_list_add(self, label, callback);
-}// FUN_004295d0, the HUD's draw: the status widgets (each drawn while its owner, +4, or its fading flag, +0x48, is
+}
+// FUN_004295d0, the HUD's draw: the status widgets (each drawn while its owner, +4, or its fading flag, +0x48, is
 // set: 0x6d5ef0 the gauges and the portrait, 0x6d5f3c the skill's), then the boss gauge by FUN_0043a770 (widget
 // 0x6d5fd4 in ecx). A part a mod hides is not drawn: the status widgets read as absent for the call, the gauge's
 // draw is skipped.
@@ -1092,6 +1108,11 @@ bool steam_delete(const char* name) {   // the drive's, for tests: a file of Ste
 }
 
 void open_toal() { g_open_toal = 1; }
+void title_run(std::uintptr_t callback) { g_title_run = callback; }
+void title_tick() {
+    if (const std::uintptr_t f = std::exchange(g_title_run, 0)) reinterpret_cast<void(__cdecl*)()>(f)();
+    if (g_cursor_back > 0 && --g_cursor_back == 0) *reinterpret_cast<std::uint8_t*>(0x74ac3d) = g_cursor_was;
+}
 
 bool hooked() { return g_hooked; }
 bool spawn_pickup(int item, const float* pos, bool resting) {
