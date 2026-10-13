@@ -112,4 +112,14 @@ bool read(const TocEntry* e, std::uint32_t& offset, void* dst, std::uint32_t n, 
     return true;
 }
 
+bool unpack(const std::vector<std::uint8_t>& z, std::vector<std::uint8_t>& out) {
+    std::uint32_t head[2];
+    if (z.size() < 8) return false;
+    std::memcpy(head, z.data(), 8);
+    if (head[1] > kUnpackMax) return false;
+    out.resize(head[1]);
+    mz_ulong n = head[1];
+    return mz_uncompress(out.data(), &n, z.data() + 8, mz_ulong(z.size() - 8)) == MZ_OK && n == head[1];
+}
+
 }  // namespace ore::files

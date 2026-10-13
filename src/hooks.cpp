@@ -8,6 +8,7 @@
 #include <cctype>
 #include <cstring>
 #include <string>
+#include <vector>
 
 #include "MinHook.h"
 #include "files.hpp"
@@ -29,6 +30,7 @@ struct Reader {
 using LookupFn = files::TocEntry*(__thiscall*)(void* archive, const char* path);                     // FUN_005defa0
 using ReadFn = int(__thiscall*)(Reader* r, void* dst, std::uint32_t n, std::uint32_t* got);          // FUN_005df220
 constexpr std::uintptr_t kLookup = 0x5defa0, kRead = 0x5df220;
+constexpr std::uintptr_t kArchive = 0x765554;   // the game's archive, the `this` of its lookups
 constexpr std::uint8_t kLookupBytes[] = {0x81, 0xec, 0x84, 0x01, 0x00, 0x00, 0x8b, 0x94, 0x24, 0x88, 0x01, 0x00, 0x00, 0x53, 0x55, 0x56};
 constexpr std::uint8_t kReadBytes[] = {0x83, 0xec, 0x14, 0x53, 0x8b, 0xd9, 0x57, 0x33, 0xff, 0x8b, 0x0b, 0x85, 0xc9, 0x0f, 0x84, 0x48};
 
@@ -47,6 +49,38 @@ int __fastcall hook_read(Reader* r, void*, void* dst, std::uint32_t n, std::uint
     if (!r->entry || !files::read(r->entry, r->offset, dst, n, done)) return g_read(r, dst, n, got);
     if (got) *got = done;
     return 0;
+}
+
+// ---- the EXP the game awards (cleria.game.exp_factor) ----------------------------------------------
+// Three places add an award to the EXP total 0x76a748, each with the award in xmm1, then run the level-ups:
+//   0x4fa525  addss xmm1, [0x76a748]    FUN_004fa4a0: a script's or a pickup's EXP
+//   0x5226c7  addss xmm1, [0x76a748]    FUN_005215e0: a kill
+//   0x4fcc07  addss xmm0, xmm1          FUN_004fbb40: a kill by the player's hit
+constexpr std::uintptr_t kExp1 = 0x4fa525, kExp2 = 0x5226c7, kExp3 = 0x4fcc07;
+constexpr std::uint8_t kExp1Bytes[] = {0xf3, 0x0f, 0x58, 0x0d, 0x48, 0xa7, 0x76, 0x00, 0xf3, 0x0f, 0x11, 0x0d, 0x48, 0xa7, 0x76, 0x00};
+constexpr std::uint8_t kExp3Bytes[] = {0xf3, 0x0f, 0x58, 0xc1, 0xf3, 0x0f, 0x11, 0x05, 0x48, 0xa7, 0x76, 0x00};
+void* g_exp1 = nullptr;
+void* g_exp2 = nullptr;
+void* g_exp3 = nullptr;
+float g_exp_factor = 1.0f;
+
+__declspec(naked) void hook_exp1() {
+    __asm {
+        mulss xmm1, dword ptr [g_exp_factor]
+        jmp   dword ptr [g_exp1]
+    }
+}
+__declspec(naked) void hook_exp2() {
+    __asm {
+        mulss xmm1, dword ptr [g_exp_factor]
+        jmp   dword ptr [g_exp2]
+    }
+}
+__declspec(naked) void hook_exp3() {
+    __asm {
+        mulss xmm1, dword ptr [g_exp_factor]
+        jmp   dword ptr [g_exp3]
+    }
 }
 
 // ---- the game loop (FUN_00410440 runs FUN_004106e0 once per 60 Hz step, then renders) --------------
@@ -264,6 +298,8 @@ const Site kSites[] = {
     SITE(kIcon, kIconBytes, &hook_icon, &g_icon),         SITE(kWindow, kWindowBytes, &hook_window, &g_window),
     SITE(kInit, kInitBytes, &hook_init, &g_init),         SITE(kSave, kSaveBytes, &hook_save, &g_save),
     SITE(kLoad, kLoadBytes, &hook_load, &g_load),         SITE(kLoad2, kLoad2Bytes, &hook_load2, &g_load2),
+    SITE(kExp1, kExp1Bytes, &hook_exp1, &g_exp1),         SITE(kExp2, kExp1Bytes, &hook_exp2, &g_exp2),
+    SITE(kExp3, kExp3Bytes, &hook_exp3, &g_exp3),
 };
 #undef SITE
 
@@ -289,5 +325,22 @@ bool install_hooks() {
 }
 
 bool hooked() { return g_hooked; }
+
+void set_exp_factor(float f) { g_exp_factor = f; }
+
+bool game_file(const char* path, std::vector<std::uint8_t>& out) {
+    void* archive = g_hooked ? *reinterpret_cast<void**>(kArchive) : nullptr;
+    files::TocEntry* e = archive ? hook_lookup(archive, nullptr, path) : nullptr;
+    if (!e || e->size == 0) return false;
+    std::vector<std::uint8_t> raw(e->size);
+    Reader r{e, 0};
+    std::uint32_t got = 0;
+    hook_read(&r, nullptr, raw.data(), e->size, &got);
+    if (got != e->size) return false;
+    const std::size_t n = std::strlen(path);
+    if (n > 2 && std::strcmp(path + n - 2, ".z") == 0) return files::unpack(raw, out);
+    out = std::move(raw);
+    return true;
+}
 
 }  // namespace ore

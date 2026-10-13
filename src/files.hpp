@@ -9,6 +9,7 @@
 // the game's loaders run unchanged. hooks.cpp puts the two in front of the game's functions.
 #pragma once
 #include <cstdint>
+#include <vector>
 
 namespace ore::files {
 
@@ -27,5 +28,8 @@ TocEntry* lookup(const char* path);
 // A read of up to `n` bytes at `offset` of an entry lookup() returned; `offset` advances by `got`.
 // False: `e` is not one of ours.
 bool read(const TocEntry* e, std::uint32_t& offset, void* dst, std::uint32_t n, std::uint32_t& got);
+
+// The bytes of a ".z" file unpacked, as the game does it. False: not a ".z" stream.
+bool unpack(const std::vector<std::uint8_t>& z, std::vector<std::uint8_t>& out);
 
 }  // namespace ore::files

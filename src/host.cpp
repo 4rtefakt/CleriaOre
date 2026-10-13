@@ -1,9 +1,11 @@
 // What a mod's script reaches of the retail game: cleria::script::Host over the memory of yso_win.exe
 // (the build hooks.cpp checks; nothing here is read unless the hooks went in). What is not backed yet
-// keeps script::Host's harmless default: the setters, images and icons, a mod's data folder.
+// keeps script::Host's harmless default: images and icons, the stat modifiers, pickups, the save profiles.
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 
 #include "cleria/content.hpp"
 #include "cleria/mod_events.hpp"
@@ -29,6 +31,76 @@ constexpr std::uintptr_t kSp = 0x76a75c, kLevel = 0x76a760;            // ints
 constexpr std::uintptr_t kRecalc = 0x76b914;      // |= 0x75: the derived state is rebuilt (as the pickup FUN_00585ff0 asks)
 constexpr std::uintptr_t kItemMagnitude = 0x76f1e4;   // INVINFO in memory: the i32 magnitude of item id at + id * 0xb8
 constexpr int kFlagCharacter = 150, kFlagWeapon = 0x94, kFlagScene = 0x1f9;
+constexpr std::uintptr_t kMaxMp = 0x76a734, kMp = 0x76a738, kAtk = 0x76a73c, kDef = 0x76a740;   // floats of the same record
+constexpr std::uintptr_t kExpNext = 0x76b910;     // float: the EXP total the next level needs
+constexpr std::uintptr_t kBoost = 0x76c1b4;       // float: the Boost gauge, 30000 = full
+constexpr std::uintptr_t kBuffs = 0x76b900;       // floats: the MP, Strength and Defense Drop buffs ...
+constexpr std::uintptr_t kBuffTimers = 0x76c19c;  // ... and the ticks left of Strength, Defense, MP
+constexpr std::uintptr_t kFix = 0x75ad90;         // int32[2]: the scripts' Fix counters; any set = the world is held
+constexpr std::uintptr_t kUpgrades = 0x76a654;    // int32[54]: the gear-upgrade cells
+constexpr std::uintptr_t kItems = 0x76f1c0;       // INVINFO in memory: 0xb8 a record, its name first
+constexpr std::uintptr_t kSaveSlot = 0x74ac3e;    // byte: the slot the save writer's callers set first
+constexpr int kFlagBoosting = 141, kFlagFight = 156, kFlagControl = 185, kFlagArena = 190, kFlagRun = 193, kFlagWarpTo = 137;
+
+// The game's own functions (of the build hooks.cpp checks).
+const auto set_level = reinterpret_cast<void(__fastcall*)(unsigned level)>(0x4200f0);         // level, EXP at its threshold, stats
+const auto set_tier = reinterpret_cast<void(__fastcall*)(unsigned slot, int tier)>(0x4201d0); // a weapon slot's tier, stats
+const auto level_ups = reinterpret_cast<void(__cdecl*)()>(0x420c40);                          // the level-ups the EXP total asks for, stats
+const auto write_save = reinterpret_cast<int(__fastcall*)(char* file)>(0x42e9a0);             // hooks.cpp hooks it: the sidecar follows
+
+// The Crystal's warp, as its menu confirms one (0x5accaf..0x5acd16): the target statue is already in
+// g_flags[137]. From the retail Archipelago mod (hook_ap.cpp do_warp_native), where it is proven.
+__declspec(naked) void warp_to_target() {
+    __asm {
+        push esi
+        push edi
+        push ebx
+        xor  edi, edi
+        mov  ebx, 0x0074e238
+        mov  esi, dword ptr [ebx]
+        test esi, esi                          // not built yet (the title): no warp
+        je   done
+        test byte ptr [esi + 8], 0x80
+        jne  fade
+        mov  ebx, 0x006d6067
+        cmp  byte ptr [ebx], 0
+        je   go
+        xor  ecx, ecx
+        mov  eax, 0x00439ee0
+        call eax
+        test eax, eax
+        js   go
+    fade:
+        mov  edx, dword ptr [esi + 8]
+        xor  ecx, ecx
+        push 0x400
+        and  edx, 1
+        mov  eax, 0x005ce2a0
+        call eax
+        add  esp, 4
+    go:
+        mov  ebx, 0x0074c09c
+        push dword ptr [ebx]                   // the player
+        xor  edx, edx
+        mov  ecx, 0x006a7620
+        push 0
+        mov  eax, 0x00434970                   // the warp
+        call eax
+        add  esp, 8
+        mov  ebx, 0x0074c09c
+        mov  eax, dword ptr [ebx]
+        mov  ebx, 0x00739160
+        mov  byte ptr [ebx], 1
+        test eax, eax
+        je   done
+        mov  word ptr [eax + 0x4c8], di
+    done:
+        pop  ebx
+        pop  edi
+        pop  esi
+        ret
+    }
+}
 
 struct RetailHost : script::Host {
     void log(const std::string& mod, const std::string& text) override { ore::log("[lua:%s] %s", mod.c_str(), text.c_str()); }
@@ -51,6 +123,21 @@ struct RetailHost : script::Host {
         return name;
     }
     void emit(const events::Event& e) override { events::bus().emit(e); }
+    bool frozen() override { return hooked() && (at<std::int32_t>(kFix) | at<std::int32_t>(kFix + 4)) != 0; }
+    std::int32_t* upgrades() override { return hooked() ? &at<std::int32_t>(kUpgrades) : nullptr; }
+    std::map<std::string, std::pair<int, std::string>> chests() override { return ore::chests(); }
+    std::string item_name(int id) override {
+        if (!hooked() || id < 0 || id >= content::kRetailItems) return {};
+        const char* name = &at<char>(kItems + std::uintptr_t(id) * 0xb8);
+        return std::string(name, strnlen(name, 0x20));
+    }
+    std::filesystem::path data_dir(const std::string& mod) override { return dir() / "modsdata" / mod; }
+    std::vector<ModInfo> mod_list() override {
+        std::vector<ModInfo> out;
+        for (const mods::Mod& m : ore::mod_list())
+            out.push_back({m.m.id, m.label(), m.m.version, m.state == mods::State::Active, !m.m.script.empty()});
+        return out;
+    }
 
     // As CleriaCore's content_give for the retail ids: the count cell (0..99), the gold 0x78..0x7F into SP.
     void give(int id, int count, const std::string& source) override {
@@ -151,6 +238,67 @@ struct RetailHost : script::Host {
             case Stat::WeaponTier: return flags()[kFlagWeapon];
         }
         return 0;
+    }
+    // The player's actor keeps a copy of the stat record (+0x94 on); the game's own setters refresh it.
+    void set_stat(Stat s, double v) override {
+        if (!in_game()) return;
+        const int i = int(std::lround(v));
+        switch (s) {
+            case Stat::Hp:
+                at<float>(kHp) = float(std::clamp(i, 0, int(at<float>(kMaxHp))));
+                *reinterpret_cast<float*>(at<char*>(kPlayer) + 0x98) = at<float>(kHp);
+                break;
+            case Stat::Sp: at<std::int32_t>(kSp) = std::clamp(i, 0, 999999); break;
+            case Stat::Level: set_level(unsigned(std::clamp(i, 1, 60))); break;
+            case Stat::WeaponTier:   // as the script op 0x7F SetWeaponLevel: the four characters' slots, 0..10.
+                // The recompute each call ends with copies the current character's slot into g_flags[148].
+                for (unsigned slot = 0; slot < 4; ++slot) set_tier(slot, std::clamp(i, 0, 10));
+                break;
+            default: break;   // MaxHp / Exp follow the game's stat model
+        }
+    }
+    void add_exp(double n) override {
+        if (!in_game()) return;
+        at<float>(kExp) += float(n);
+        level_ups();
+    }
+    bool player_info(script::PlayerInfo& o) override {
+        if (!in_game()) return false;
+        o.level = at<std::int32_t>(kLevel);
+        o.hp = int(at<float>(kHp));
+        o.max_hp = int(at<float>(kMaxHp));
+        o.sp = at<std::int32_t>(kSp);
+        o.weapon_tier = flags()[kFlagWeapon];
+        o.exp = at<float>(kExp);
+        o.exp_next = o.level < 60 ? at<float>(kExpNext) : 0.0;
+        o.atk = o.base_atk = at<float>(kAtk);       // no modifier on the retail game yet: the two are one
+        o.def = o.base_def = at<float>(kDef);
+        o.base_max_hp = o.max_hp;
+        o.mp = at<float>(kMp);
+        o.max_mp = at<float>(kMaxMp);
+        o.boost = at<float>(kBoost);
+        o.boosting = flags()[kFlagBoosting] != 0;
+        const float* buff = &at<float>(kBuffs);     // MP, Strength, Defense
+        o.buff[0] = buff[1]; o.buff[1] = buff[2]; o.buff[2] = buff[0];
+        for (int k = 0; k < 3; ++k) o.buff_timer[k] = (&at<std::int32_t>(kBuffTimers))[k];
+        return true;   // luck and the position are not read yet
+    }
+    void warp(int index) override {
+        if (!in_game() || index < 0 || index >= 24) return;
+        flags()[kFlagWarpTo] = index;
+        warp_to_target();
+    }
+    // The statue's save when the game can be saved, by CleriaCore's gate (view_game.inl) and the retail
+    // Archipelago mod's: the player has the controls (185), no boss fight (156), arena (190) or run (193),
+    // no Fix, alive, a second in the room.
+    bool save(int slot) override {
+        if (slot < 0 || slot > 63 || !in_game() || session_pending() || frozen() || room_ticks() < 60) return false;
+        const std::int32_t* f = flags();
+        if (f[kFlagControl] != 1 || f[kFlagFight] != 0 || f[kFlagArena] != 0 || f[kFlagRun] != 0 || at<float>(kHp) < 1) return false;
+        char file[16];
+        std::snprintf(file, sizeof file, "yso_%02d.bin", slot);
+        at<char>(kSaveSlot) = char(slot);
+        return write_save(file) >= 0;
     }
 };
 
