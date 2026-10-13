@@ -76,6 +76,11 @@ exits, `new_game` / `load` / `retry`, the equipment and the ailments, the shop f
 item icons, `unlock_character`, the save profiles, `text*.ini`, and the
 load order in the game's panel. Co-op needs most of the first line.
 
+The scripted mods of `cleriacore-mods` (17 with the probes) all start and run a fight and room changes without
+a script error. **Co-op runs as host against a fake teammate** (`tools/coop_bot.py`): the join, the teammate's
+puppet with its name, the party list, chat, the host's pose and snapshots going out. Not tried: two real games,
+a guest on retail, the monsters of a room shared both ways, a boss.
+
 How to test a build by hand, and the drive that steers the game for unattended tests: [TEST_PROTOCOL.md](TEST_PROTOCOL.md).
 
 ## Build

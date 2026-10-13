@@ -58,3 +58,22 @@ the environment variable `CLERIAORE_DRIVE` set; each frame it then reads, in `cl
 
 The probe mod has commands for it: `actors`, `labels`, `weaken`, `remove`, `tp x y z`, `speed f`,
 `hold 0|1`, `image`, `window`, and `lua <code>` for anything else.
+
+`tools/drive.ps1` wraps the drive (start the game with it, hold keys, send a command, take a picture of the
+window, read the log, stop). The paths at its top are this machine's.
+
+## Co-op without a second game
+
+`tools/coop_bot.py` is a fake teammate: it joins a host on 127.0.0.1:7777 as Yunica, walks a circle in the
+host's room, says one chat line, and prints what the host sends. With the Co-op mod on and, in
+`cleriaore.ini`, `[cleria.mod.4rtefakt.coop]` `Auto="host"` and `Loopback="1"`:
+
+```
+python tools/coop_bot.py 20
+```
+
+What should happen in the game: a Yunica walks round the statue with "Bot" over her head, the party list
+shows Bot's HP at the top right, and a card reads "Bot: hello from the bot". The bot prints `welcome`, the
+host's room and pose, and the room's snapshots.
+
+![The retail game hosting, the bot as Yunica](coop-retail.png)
