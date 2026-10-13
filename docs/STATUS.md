@@ -37,7 +37,7 @@ What works:
   game publishes), `set_actor`, `remove`, and `spawn` for a cast the room already holds (the game loads a
   monster's model with the room). An actor's id is its record's address, good for the room.
 - Game operations: `player.set_position`, `set_mp`, `set_boost`, `set_exp`, heal and hurt, `game.pause`,
-  `game.set_speed`, `game.room_title` (the game's scene table; so `floor` and `zone`), `game.goto_room` (the request a script's ChangeScene makes), the random seed, a sound of the game's (`audio.se`), `camera.get`.
+  `game.set_speed`, `game.room_title` (the game's scene table; so `floor` and `zone`), `game.goto_room` (the request a script's ChangeScene makes), the random seed, a sound of the game's (`audio.se`), `camera.get`, `player.set_invulnerable`, a script's hits (`combat.damage` on a monster, `combat.strike` on the player, without the flinch), `world.boss` (the gauge; its actor is not found yet) and `combat.boss_bonus` (untested). What was learnt of the retail game for these is in [RETAIL_RE.md](RETAIL_RE.md).
 - `content/*.ini`: `chests.ini`, `rules.ini`, `pickups.ini` (items of the game's own), new items
   (0x100..0x1FF) kept with the save, the retail items' patched name, description and value.
 - The events CleriaCore's content layer reports: `chest_opened`, `door_opened`, `boss_defeated`, `death`
@@ -63,8 +63,7 @@ The hooks are for one build only, the Steam `yso_win.exe` linked 2024-01-08: on 
 hooked and the log says so.
 
 What does not exist yet, so a script's call answers its default: puppets and monster variants
-(`world.puppet`, `world.form`, `content.define_monster`), the world filters (`spawn`, `exit`), a hit dealt by
-a script (`combat.hit`, `strike`, `damage`), the camera's and the fader's writes, music, the
+(`world.puppet`, `world.form`, `content.define_monster`), the world filters (`spawn`, `exit`), the camera's and the fader's writes, music, the
 exits, `new_game` / `load` / `retry`, the equipment and the ailments, the shop filter and `blessing_bought`,
 item icons, `unlock_character`, the save profiles, `text*.ini`, and the
 load order in the game's panel. Co-op needs most of the first line.

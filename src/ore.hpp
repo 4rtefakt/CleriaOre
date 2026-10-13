@@ -79,6 +79,9 @@ void set_pause(const std::string& mod, bool on);
 bool paused();                                       // some mod holds the game
 void set_speed(const std::string& mod, double factor);
 double speed();                                      // the product of the mods' factors, 0.1 .. 4
+// cleria.combat.boss_bonus: damage added to the player's next hit on the boss gauge's owner. n > 0 adds, 0 empties,
+// < 0 only reads; -> the pool.
+double boss_bonus(double n);
 // For the overlay (ui.cpp, the game thread):
 std::vector<cleria::mods::Mod>& mod_list();                           // every mod found, in load order
 std::vector<std::unique_ptr<cleria::script::Mod>>& scripts();         // the started scripts

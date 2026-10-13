@@ -47,6 +47,8 @@ std::vector<std::string> g_log_tail;   // the last lines the scripts logged (cle
 std::string g_state;                   // game.state() at the last tick, for state_changed
 std::map<std::string, std::array<std::pair<double, double>, 3>> g_stat_mods;   // per mod: {add, mul} of max HP, ATK, DEF
 std::set<std::string> g_pause;         // the mods that hold the game
+double g_boss_bonus = 0;               // cleria.combat.boss_bonus
+constexpr std::uintptr_t kBossGaugeOwner = 0x6d5fd8;   // the boss gauge's widget +4: its owner's instance id (actor +0x14), 0 = no gauge
 std::map<std::string, double> g_speed; // a mod's factor of the game's speed
 
 // "yso_05.bin" -> 5: the file number CleriaCore calls the slot; -1 for a name without one.
@@ -250,6 +252,10 @@ void set_pause(const std::string& mod, bool on) {
     else g_pause.erase(mod);
 }
 bool paused() { return !g_pause.empty(); }
+double boss_bonus(double n) {
+    if (n >= 0) g_boss_bonus = n > 0 ? (std::min)(g_boss_bonus + n, 1.0e7) : 0.0;
+    return g_boss_bonus;
+}
 void set_speed(const std::string& mod, double factor) {
     if (factor == 1.0) g_speed.erase(mod);
     else g_speed[mod] = factor;
@@ -454,9 +460,18 @@ GrantDecision on_grant(GrantQuery q) {
 // A hit's final damage. Dealt: the player's on a monster. Taken: on the player.
 int on_damage(bool dealt, int value, const void* victim, const void* attacker) {
     using Kind = script::CombatQuery::Kind;
-    if (!victim || !combat_on(Kind::Damage)) return value;
+    if (!victim) return value;
     const int vcast = field<std::int32_t>(victim, kActCast);
     if (dealt ? (!attacker || field<std::int32_t>(attacker, kActCast) != kCastPlayer) : vcast != kCastPlayer) return value;
+    // The mods' pooled damage: past the filters, spent at once, on the actor the boss gauge shows.
+    auto pooled = [&](int d) {
+        const int owner = *reinterpret_cast<const std::int32_t*>(kBossGaugeOwner);
+        if (!dealt || d <= 0 || g_boss_bonus < 1.0 || !owner || field<std::int32_t>(victim, 0x14) != owner) return d;
+        d += int(g_boss_bonus);
+        g_boss_bonus = 0;
+        return d;
+    };
+    if (!combat_on(Kind::Damage)) return pooled(value);
     script::CombatQuery q;
     q.kind = Kind::Damage;
     q.value = value;
@@ -467,7 +482,7 @@ int on_damage(bool dealt, int value, const void* victim, const void* attacker) {
         q.num.push_back({"atk", double(field<float>(attacker, kActAtk))});
     }
     q.str = {{"dir", dealt ? "dealt" : "taken"}};
-    return int(answered(combat(q), value, 999999.0));
+    return pooled(int(answered(combat(q), value, 999999.0)));
 }
 
 // An EXP award above 0, as it joins the total.

@@ -395,6 +395,55 @@ struct RetailHost : script::Host {
             if (!rec || !alive) return false;
             return request_scene(*reinterpret_cast<const std::uint16_t*>(rec), 0) == 0;   // refused while another change is pending
         }
+        // A hit of a script's on a monster: the HP it takes and the event bits the game's own applier (FUN_004fbb40)
+        // leaves at +0x3bc for the monster's brain: 4 struck, 2 hurt, 0x10 killed (HP 0). The brain plays the flinch
+        // or the death and its drops. No EXP or SP: the applier credits those to the hitter itself.
+        if (op == "hit") {
+            char* a = find_monster(int(arg(0, -1)));
+            const int dmg = int(arg(1));
+            if (!alive || !a || dmg < 0) return false;
+            in<std::uint32_t>(a, 0x3bc) |= dmg > 0 ? 6u : 4u;
+            if (in<float>(a, kAHp) - float(dmg) < 1.0f) {
+                in<float>(a, kAHp) = 0;
+                in<std::uint32_t>(a, 0x3bc) |= 0x10;
+            } else {
+                in<float>(a, kAHp) -= float(dmg);
+            }
+            return true;
+        }
+        // A hit on the player priced as the game prices one (FUN_004fa550, its first lines): the attacker's ATK
+        // against the player's DEF. Skipped under the hurt invulnerability (+0x734), which it then gives (12 ticks,
+        // a medium hit's). [H] no flinch or knockback: those are the hurt applier's (FUN_004fd350) own.
+        if (op == "strike") {
+            if (!alive || arg(0) <= 0) return false;
+            if (in<std::int32_t>(player, 0x734) > 0) return true;
+            const float atk = float(arg(0)), def = in<float>(player, kADef);
+            const float d = atk * ((atk - def * at<float>(0x6bd414)) + at<float>(0x6bd928) + float(arg(1))) / at<float>(0x6bd9b0);
+            const int dmg = (std::max)(1, int(d));
+            in<std::int32_t>(player, 0x734) = 12;
+            set_stat(Stat::Hp, at<float>(kHp) - float(dmg));
+            return true;
+        }
+        if (op == "invulnerable") {                                               // the hurt invulnerability, in ticks: raised, never cut
+            if (!alive) return false;
+            in<std::int32_t>(player, 0x734) = (std::max)(in<std::int32_t>(player, 0x734), int(arg(0)));
+            return true;
+        }
+        if (op == "boss_bonus") {
+            const double pool = boss_bonus(arg(0, -1));
+            if (out) *out = {pool};
+            return true;
+        }
+        if (op == "boss") {                                                       // the boss gauge (its widget at 0x6d5fd4): owner, HP, max
+            const int owner = at<std::int32_t>(0x6d5fd8);
+            if (!out || !owner) return false;
+            double id = 0;
+            const int count = at<std::int32_t>(kActorCount);
+            for (int i = 0; i < count && i < 256; ++i)
+                if (char* a = actor_at(i); a && in<std::int32_t>(a, 0x14) == owner && monster(a)) id = double(int(reinterpret_cast<std::uintptr_t>(a)));
+            *out = {id, double(at<float>(0x6d5fd4 + 0x30)), double(at<float>(0x6d5fd4 + 0x38))};
+            return true;
+        }
         if (op == "cam_get") {
             if (!out) return false;
             const float* e = &at<float>(kCamEye);
