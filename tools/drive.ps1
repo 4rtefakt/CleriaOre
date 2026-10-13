@@ -14,8 +14,14 @@ if ($start) {
         Copy-Item "C:\Users\kores\repos\CleriaOre\build\Release\dinput8.dll" "$g\dinput8.dll" -Force
         Set-Content "$d\keys.txt" "" -NoNewline
         $env:CLERIAORE_DRIVE = "1"
-        Start-Process -FilePath "$g\yso_win.exe" -WorkingDirectory $g | Out-Null
-        Start-Sleep -Seconds 14
+        foreach ($try in 1..3) {   # the game sometimes stays on a black window at its start: its log then never says "[ui] ready"
+            Start-Process -FilePath "$g\yso_win.exe" -WorkingDirectory $g | Out-Null
+            Start-Sleep -Seconds 14
+            if (Select-String -Path "$g\cleriaore\cleriaore.log" -Pattern "\[ui\] ready" -Quiet) { break }
+            "start $try did not come up, again"
+            Get-Process yso_win -ErrorAction SilentlyContinue | Stop-Process -Force
+            Start-Sleep -Seconds 25
+        }
     }
 }
 if ($load -ge 0) { if ($start) { Start-Sleep -Seconds 5 }; Set-Content "$d\cmd.tmp" "lua cleria.game.load($load)"; Move-Item "$d\cmd.tmp" "$d\cmd.txt" -Force; Start-Sleep -Seconds 9 }

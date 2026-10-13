@@ -60,6 +60,11 @@ the environment variable `CLERIAORE_DRIVE` set; each frame it then reads, in `cl
 The probe mod has commands for it: `actors`, `labels`, `weaken`, `remove`, `tp x y z`, `speed f`,
 `hold 0|1`, `image`, `window`, and `lua <code>` for anything else.
 
+Two cautions. The game sometimes stays on a black window at its start (seen three times in some forty starts,
+the cause not found: the loader's log then stops before `[ui] ready`); `drive.ps1 -start` closes it and starts
+again. And `-shot`
+copies the screen where the game's window is, whatever covers it: use the log instead while the screen is shared.
+
 `tools/drive.ps1` wraps the drive (start the game with it, hold keys, send a command, take a picture of the
 window, read the log, stop). The paths at its top are this machine's.
 

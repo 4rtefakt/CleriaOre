@@ -192,8 +192,14 @@ const std::map<std::string, std::pair<int, std::string>>& chests() { return g_ch
 std::vector<mods::Mod>& mod_list() { return g_list; }
 std::vector<std::unique_ptr<script::Mod>>& scripts() { return g_scripts; }
 
+std::vector<std::string> g_order;      // the load order the panel chose; empty: as the list stands
+void save_order(const std::vector<std::string>& ids) {
+    g_order = ids;
+    save_prefs();
+}
 void save_prefs() {
-    const mods::Prefs p = mods::prefs_of(g_list, g_use);
+    mods::Prefs p = mods::prefs_of(g_list, g_use);
+    if (!g_order.empty()) p.order = g_order;
     g_ini.set_int("cleria.mods", "UseMods", p.use ? 1 : 0);
     g_ini.set_string("cleria.mods", "Order", mods::join_list(p.order));
     g_ini.set_string("cleria.mods", "Active", mods::join_list(p.active));
@@ -402,7 +408,7 @@ script::WorldDecision world_filter(const script::WorldQuery& q) {
     return {};
 }
 // A blessing bought reaches its effect: the shop filters' Buy query (another blessing's effect, or none), then
-// blessing_bought, whatever they said. The price is not known here (0).
+// blessing_bought, whatever they said. The price is what its script last took (0x69).
 // The player's bullet as it is made: player_bullet, with what another screen needs to show the same one.
 void on_bullet(const void* owner, int kind, const std::uint32_t* a) {
     if (WaitForSingleObject(g_started, 0) != WAIT_OBJECT_0 || g_scripts.empty()) return;
@@ -426,6 +432,42 @@ void on_effect(const void* actor, const std::int32_t* a) {
              .with("attach", a[5]),
          host().room());
 }
+// The blessing a script's name stands for: "@Grow03" -> 3, "@GrowAr" -> 7 (armor), "@GrowLe" -> 8 (leggings), any
+// case; -1 for anything else. For 0xdd the label operand names the script, but the menu's own script runs it: the
+// price is then keyed by what the filter is asked with, the sub-op and the price itself.
+int blessing_of(const char* script) {
+    char s[8] = {0};
+    const char* p = script && script[0] == '@' ? script + 1 : script;
+    if (!p || std::strlen(p) != 6) return -1;
+    for (int i = 0; i < 6; ++i) s[i] = char(std::tolower(static_cast<unsigned char>(p[i])));
+    if (std::memcmp(s, "grow", 4) != 0) return -1;
+    if (std::memcmp(s + 4, "ar", 2) == 0) return 7;
+    if (std::memcmp(s + 4, "le", 2) == 0) return 8;
+    return std::isdigit(static_cast<unsigned char>(s[4])) && std::isdigit(static_cast<unsigned char>(s[5])) ? (s[4] - '0') * 10 + (s[5] - '0') : -1;
+}
+bool g_shop = false;                   // some mod has a shop filter (looked up each tick: the fetch hook is hot)
+int g_shop_paid = 0;                   // the SP the last blessing's script took
+bool shop_on() { return g_shop; }
+int on_shop_price(int sub, const char* script, const char* of, int price) {
+    const int bi = blessing_of(of);
+    if (bi < 0) return price;
+    ShopQuery q;
+    q.kind = ShopQuery::Kind::Price;
+    q.sub = sub;
+    q.index = bi;
+    q.value = price;
+    q.script = script ? script : "";
+    const std::string room = host().room();
+    int out = price;
+    for (auto& m : g_scripts) {
+        if (!m->ok() || !m->has_shop_filter()) continue;
+        const GrantDecision d = m->shop_filter(q, room);
+        if (d.action == GrantDecision::Action::Replace) { out = (std::max)(0, d.value); break; }
+        if (d.action != GrantDecision::Action::Pass) break;
+    }
+    if (sub == 0x69 || sub == 0xb0) g_shop_paid = out;
+    return out;
+}
 int on_blessing(int index) {
     if (WaitForSingleObject(g_started, 0) != WAIT_OBJECT_0 || g_scripts.empty()) return index;
     const std::string room = host().room();
@@ -433,6 +475,7 @@ int on_blessing(int index) {
     q.kind = ShopQuery::Kind::Buy;
     q.sub = 0xaf;
     q.index = index;
+    q.value = g_shop_paid;
     GrantDecision d;
     for (auto& m : g_scripts) {
         if (!m->ok() || !m->has_shop_filter()) continue;
@@ -444,6 +487,7 @@ int on_blessing(int index) {
     events::Event e;
     e.kind = events::Kind::BlessingBought;
     e.index = index;
+    e.new_value = g_shop_paid;
     e.old_value = off ? 1 : 0;
     emit(e, room);
     if (off) return -1;
@@ -452,6 +496,8 @@ int on_blessing(int index) {
 void emit_named(const events::Event& e) { emit(e, host().room()); }
 void on_tick() {
     if (WaitForSingleObject(g_started, 0) != WAIT_OBJECT_0 || (g_scripts.empty() && !content_on())) return;
+    g_shop = false;
+    for (auto& m : g_scripts) g_shop = g_shop || (m->ok() && m->has_shop_filter());
     if (!g_tune.empty()) tune_tick();
     cam_tick();
     if (!g_hud_hidden.empty()) hud_tick();

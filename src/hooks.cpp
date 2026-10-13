@@ -8,11 +8,16 @@
 #include <cctype>
 #include <cstdlib>
 #include <cstring>
+#include <cwctype>
+#include <filesystem>
+#include <set>
+#include <mutex>
 #include <string>
 #include <vector>
 
 #include "MinHook.h"
 #include "files.hpp"
+#include "cleria/vfs.hpp"
 #include "ore.hpp"
 #include "ui.hpp"
 
@@ -92,6 +97,35 @@ bool g_effect_shown = false;            // an effect of puppet_effect is being m
 void __stdcall hook_effect(void* actor, std::int32_t* args) {
     if (!g_effect_shown) on_effect(actor, args);
     g_effect(actor, args);
+}
+// FUN_00566190, the script VM's fetch of an integer operand: thiscall(script; context, the sub-op, a word, the
+// operands, the operand's index), answering a pointer to the value. A blessing's script (@GrowNN, its name at
+// script +0x124) tests the SP against its price (0x61: flag 216, 6, price), takes it (0x69: flag 216, price) and
+// shows it in the menu (0xdd: text, label, price); the mods' shop filter may give another price to all three.
+constexpr std::uintptr_t kFetch = 0x566190;
+constexpr std::uint8_t kFetchBytes[] = {0x56, 0x8b, 0x74, 0x24, 0x18, 0x8b, 0xc6, 0x99, 0x83, 0xe2, 0x07, 0x03, 0xc2, 0x8b, 0x54, 0x24};
+using FetchFn = int*(__thiscall*)(void* script, void* ctx, int sub, void* word, int* ops, int index);
+FetchFn g_fetch = nullptr;
+int* __fastcall hook_fetch(void* script, void*, void* ctx, int sub, void* word, int* ops, int index) {
+    int* p = g_fetch(script, ctx, sub, word, ops, index);
+    if (!shop_on() || !p || !script) return p;
+    const char* name = static_cast<const char*>(script) + 0x124;
+    // The armor's and the leggings' blessings price themselves (0xb0 puts the price in flag 218) and then compare
+    // and take by that flag: the flag is given the filter's price when the script first names it (0x62: 216, 6, 218).
+    if (sub == 0x62 && index == 2 && *p == 218 && ops[0] == 216) {
+        static int left = -1;
+        std::int32_t& cost = *reinterpret_cast<std::int32_t*>(0x76b91c + 4 * 218);
+        if (cost != left) cost = left = on_shop_price(0xb0, name, name, cost);
+        return p;
+    }
+    const bool price = (sub == 0x61 && index == 2 && ops[0] == 216) || (sub == 0x69 && index == 1 && ops[0] == 216) || (sub == 0xdd && index == 2);
+    if (!price) return p;
+    const char* of = name;
+    if (sub == 0xdd)   // a row of the menu: its label operand names the blessing's script (FUN_00566100, the string fetch)
+        of = reinterpret_cast<const char*(__thiscall*)(void*, void*, int, void*, int*, int)>(0x566100)(script, ctx, sub, word, ops, 1);
+    static int answer = 0;
+    answer = on_shop_price(sub, name, of, *p);
+    return answer == *p ? p : &answer;
 }
 // FUN_0045a2f0, GoActor's update (its vtable's third entry): a jump to the actor's handler, by its index at +0x120.
 // An actor a mod holds is not updated: it stays where and as it was put. It is still drawn: a handler hands its
@@ -652,7 +686,7 @@ const Site kSites[] = {
     SITE(kRecompute, kRecomputeBytes, &hook_recompute, &g_recompute), SITE(kPart, kPartBytes, &hook_part, &g_part),
     SITE(kActorUpdate, kActorUpdateBytes, &hook_actor_update, &g_actor_update), SITE(kScene, kSceneBytes, &hook_scene, &g_scene),
     SITE(kBless, kBlessBytes, &hook_bless, &g_bless),     SITE(kBullet, kBulletBytes, &hook_bullet, &g_bullet),
-    SITE(kEffect, kEffectBytes, &hook_effect, &g_effect),
+    SITE(kEffect, kEffectBytes, &hook_effect, &g_effect), SITE(kFetch, kFetchBytes, &hook_fetch, &g_fetch),
     SITE(kSpawn, kSpawnBytes, &hook_spawn, &g_spawn),       SITE(kTouch, kTouchBytes, &hook_touch, &g_touch),
 };
 #undef SITE
@@ -669,9 +703,96 @@ bool is_the_build() {
 
 }  // namespace
 
+// ---- the loose music folder ----------------------------------------------------------------------------------------
+// The game streams its music from plain files, release\music\<name>.ogg, <name> from its table of 0x14-byte records
+// (DAT_0074c118, DAT_0074c114 of them: 16 characters of name, then the id). They are opened through Windows, not
+// through the archive: the game's imports of CreateFileA / W are pointed at ours, and a file of that folder a mod
+// provides (files/music/<name>.ogg)
+// is opened in its place. cleria.audio.music_file plays any Ogg file the same way: one record (id 30, which no room
+// uses) is given a name of ours, and that name leads to the mod's file.
+using CreateFileAFn = HANDLE(WINAPI*)(LPCSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTES, DWORD, DWORD, HANDLE);
+using CreateFileWFn = HANDLE(WINAPI*)(LPCWSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTES, DWORD, DWORD, HANDLE);
+CreateFileAFn g_create_a = nullptr;
+CreateFileWFn g_create_w = nullptr;
+constexpr wchar_t kOwnMusic[] = L"clmodbgm.ogg";
+std::wstring g_music_file;              // what kOwnMusic leads to
+std::mutex g_music_mtx;
+
+bool music_redirect(const std::wstring& asked, std::wstring& to) {
+    std::wstring p(asked);
+    for (wchar_t& c : p) c = c == L'/' ? L'\\' : wchar_t(towlower(c));
+    const std::size_t at = p.rfind(L"music\\");
+    if (at == std::wstring::npos || (at != 0 && p[at - 1] != L'\\') || p.find(L'\\', at + 6) != std::wstring::npos) return false;
+    const std::wstring file = p.substr(at + 6);
+    if (file == kOwnMusic) {
+        std::lock_guard<std::mutex> lk(g_music_mtx);
+        if (g_music_file.empty()) return false;
+        to = g_music_file;
+        log("[files] music: %s", std::filesystem::path(to).u8string().c_str());
+        return true;
+    }
+    std::string name = "music/";
+    for (wchar_t c : file) {
+        if (c > 127) return false;
+        name += char(c);
+    }
+    const auto& t = cleria::vfs::table();
+    const auto it = t.find(cleria::vfs::key(name));
+    if (it == t.end()) return false;
+    to = it->second.file.wstring();
+    static std::set<std::string> told;
+    if (told.insert(name).second) log("[files] %s <- %s", name.c_str(), cleria::vfs::layers()[std::size_t(it->second.layer)].id.c_str());
+    return true;
+}
+HANDLE WINAPI hook_create_w(LPCWSTR name, DWORD access, DWORD share, LPSECURITY_ATTRIBUTES sa, DWORD how, DWORD flags, HANDLE tmpl) {
+    std::wstring to;
+    if (name && music_redirect(name, to)) name = to.c_str();
+    return g_create_w(name, access, share, sa, how, flags, tmpl);
+}
+HANDLE WINAPI hook_create_a(LPCSTR name, DWORD access, DWORD share, LPSECURITY_ATTRIBUTES sa, DWORD how, DWORD flags, HANDLE tmpl) {
+    std::wstring to;
+    if (name) {
+        wchar_t wide[MAX_PATH * 2];
+        if (MultiByteToWideChar(CP_ACP, 0, name, -1, wide, MAX_PATH * 2) > 0 && music_redirect(wide, to))
+            return g_create_w(to.c_str(), access, share, sa, how, flags, tmpl);
+    }
+    return g_create_a(name, access, share, sa, how, flags, tmpl);
+}
+
+// The game's own import of a kernel32 function pointed at `to`; -> what it pointed at, null when it has no such
+// import. Only the game's calls change: kernel32 itself is left alone (no code of Windows is patched, no thread
+// is stopped for it).
+void* import_swap(const char* name, void* to) {
+    auto* base = reinterpret_cast<std::uint8_t*>(GetModuleHandleW(nullptr));
+    const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS32*>(base + reinterpret_cast<const IMAGE_DOS_HEADER*>(base)->e_lfanew);
+    const IMAGE_DATA_DIRECTORY& dir = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT];
+    if (!dir.VirtualAddress) return nullptr;
+    for (auto* d = reinterpret_cast<const IMAGE_IMPORT_DESCRIPTOR*>(base + dir.VirtualAddress); d->Name; ++d) {
+        if (_stricmp(reinterpret_cast<const char*>(base + d->Name), "kernel32.dll") != 0 || !d->OriginalFirstThunk) continue;
+        auto* names = reinterpret_cast<const IMAGE_THUNK_DATA32*>(base + d->OriginalFirstThunk);
+        auto* slots = reinterpret_cast<IMAGE_THUNK_DATA32*>(base + d->FirstThunk);
+        for (; names->u1.AddressOfData; ++names, ++slots) {
+            if (names->u1.Ordinal & IMAGE_ORDINAL_FLAG32) continue;
+            const auto* by = reinterpret_cast<const IMAGE_IMPORT_BY_NAME*>(base + names->u1.AddressOfData);
+            if (std::strcmp(by->Name, name) != 0) continue;
+            DWORD old = 0;
+            void* was = reinterpret_cast<void*>(slots->u1.Function);
+            if (!VirtualProtect(&slots->u1.Function, 4, PAGE_READWRITE, &old)) return nullptr;
+            slots->u1.Function = reinterpret_cast<DWORD>(to);
+            VirtualProtect(&slots->u1.Function, 4, old, &old);
+            return was;
+        }
+    }
+    return nullptr;
+}
+
 bool install_hooks() {
     if (!is_the_build()) return false;
     if (MH_Initialize() != MH_OK) return false;
+    g_create_w = static_cast<CreateFileWFn>(import_swap("CreateFileW", &hook_create_w));
+    g_create_a = static_cast<CreateFileAFn>(import_swap("CreateFileA", &hook_create_a));
+    if (!g_create_w) g_create_w = &CreateFileW;
+    if (!g_create_a) g_create_a = &CreateFileA;
     for (const Site& site : kSites)
         if (MH_CreateHook(reinterpret_cast<void*>(site.at), site.hook, site.original) != MH_OK) return false;
     g_hooked = MH_EnableHook(MH_ALL_HOOKS) == MH_OK;
@@ -720,6 +841,25 @@ bool load_slot(int slot) {
     std::snprintf(file, sizeof file, "yso_%02d.bin", slot);
     *reinterpret_cast<std::uint8_t*>(0x74ac3e) = std::uint8_t(slot);
     return hook_load(file) >= 0;
+}
+
+// The record of music id 30 named for our own file, then a script's Bgm_Play of it.
+bool play_music_file(const std::string& file) {
+    char* recs = g_hooked ? *reinterpret_cast<char**>(0x74c118) : nullptr;
+    const int count = recs ? *reinterpret_cast<std::int32_t*>(0x74c114) : 0;
+    char* rec = nullptr;
+    for (int i = 0; i < count && i < 256; ++i)
+        if (*reinterpret_cast<std::int32_t*>(recs + i * 0x14 + 0x10) == 30) rec = recs + i * 0x14;
+    if (!rec || file.empty()) return false;
+    {
+        std::lock_guard<std::mutex> lk(g_music_mtx);
+        g_music_file = std::filesystem::u8path(file).wstring();
+    }
+    std::memset(rec, 0, 16);
+    std::memcpy(rec, "CLMODBGM", 8);
+    reinterpret_cast<void(__fastcall*)(int, int)>(0x432fc0)(0, 0);     // Bgm_Stop: the same id may be playing our last file
+    reinterpret_cast<void(__fastcall*)(int, int)>(0x432ee0)(30, 0);    // Bgm_Play
+    return true;
 }
 
 bool puppet_effect(void* actor, const double* n) {

@@ -45,9 +45,13 @@ int on_damage(bool dealt, int value, const void* victim, const void* attacker, c
 void on_bullet(const void* owner, int kind, const std::uint32_t* args);
 void on_effect(const void* actor, const std::int32_t* args);                      // an animation script makes an effect (FUN_004496f0)
 bool puppet_effect(void* actor, const double* n);                                // hooks.cpp: (id, fwd, angle, voff, scale, attach) on that actor
+bool play_music_file(const std::string& file);                                   // hooks.cpp: an Ogg file of a mod's as the game's music
 bool load_slot(int slot);                                                        // hooks.cpp: the Load page's own read of a save, 0-based
 bool show_bullet(const double* n);                                               // hooks.cpp: the 19 numbers of a player_bullet event, as a bullet that hurts nobody
 void script_kill(void* victim);                                                  // a script's hit killed this monster: its EXP and SP, as a kill of the player's
+bool shop_on();                                                                  // some mod has a shop filter
+// The Price query of a blessing: `of` names it ("@Grow03": the running script, or the menu row's label).
+int on_shop_price(int sub, const char* script, const char* of, int price);
 int on_blessing(int index);                                                      // a blessing's effect is about to be given: -> the index, -1 = none
 int on_part_damage(int value, const void* victim, const void* source);           // the same for a hit on a map object (a boss's part)
 float on_exp(float value, int source, const void* victim);    // -> the EXP awarded; source 0 a kill, 1 a boss
@@ -118,7 +122,8 @@ bool actor_held(const void* actor);                  // host.cpp: a mod holds th
 // For the overlay (ui.cpp, the game thread):
 std::vector<cleria::mods::Mod>& mod_list();                           // every mod found, in load order
 std::vector<std::unique_ptr<cleria::script::Mod>>& scripts();         // the started scripts
-void save_prefs();                                                    // mod_list()'s order and On / Off -> cleriaore.ini
+void save_prefs();
+void save_order(const std::vector<std::string>& ids);   // the load order as the panel changed it: kept for the next start                                                    // mod_list()'s order and On / Off -> cleriaore.ini
 // A mod's settings, cleriaore.ini [cleria.mod.<id>] (cleria.settings):
 std::optional<std::string> setting(const std::string& mod, const std::string& key);
 bool set_setting(const std::string& mod, const std::string& key, const std::string& value);

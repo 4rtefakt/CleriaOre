@@ -297,3 +297,28 @@ The notes themselves are gathered in the `yso` repository.
   for every monster of S_1001 (casts 14 and 19), with the puppet a step from one of them and the player far
   off, moved nothing in eight seconds: these brains find their prey by the player's own pointer and distance.
   **Open:** which casts read +0x888. A puppet stays out of the monsters' reach.
+
+## Music files
+
+- **The game streams its music from plain files**, `release\music\<name>.ogg`, opened through Windows and not
+  through the archive, `<name>` from a table of 0x14-byte records (`DAT_0074c118`, `DAT_0074c114` of them: 16
+  characters of name, then the id at +0x10). The game's own imports of `CreateFileA` and `CreateFileW` are
+  pointed at the loader's (kernel32 itself is not patched): a file of that folder
+  that a mod provides (`files/music/YSO_004.ogg`) is opened in its place. Driven: with such a file in a mod,
+  entering S_1001 (music 4) logged the redirect.
+- `audio.music("file.ogg")` plays any Ogg file of a mod the same way: the record of music id 30, which no
+  room uses, is given a name of the loader's, and that name leads to the mod's file. Driven: the game opened
+  the mod's file. Neither was checked by ear.
+
+## The blessing shop's prices
+
+- **Every integer operand of a script is fetched through one function**, `FUN_00566190`: thiscall(script; a
+  context, the sub-op, a word, the operands, the operand's index), answering a pointer to the value;
+  `FUN_00566100` is its twin for strings. Hooked: answering a pointer to another value changes what a script
+  reads without touching the script.
+- A blessing's script `@GrowNN` (its name at script +0x124) tests the SP against its price with 0x61 (flag
+  216, 6, price) and takes it with 0x69 (flag 216, price); the menu's script `@GrowMenu` shows it with 0xdd
+  (text, the blessing's script as a label, price). The armor's and the leggings' scripts (`@GrowAr`,
+  `@GrowLe`) put their price in flag 218 with 0xb0 and then compare (0x62: 216, 6, 218) and take by that
+  flag. The mods' shop filter is asked the price at each of these. Driven in S_2013 with a filter answering
+  50: every row of the menu read "[SP:]50". Then two purchases: the armor's at 50 in place of 300 and the heal rate's at 50 in place of 1,000, the SP going 2,952 to 2,902 to 2,852, and `blessing_bought` carrying the 50.

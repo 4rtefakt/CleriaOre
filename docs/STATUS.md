@@ -13,7 +13,7 @@ What works:
   discovered, checked and ordered, and their Lua scripts start in the sandbox.
 - File overrides: a mod's `files/` folder replaces the game's packed files. The archive reader's lookup
   and read (`FUN_005defa0`, `FUN_005df220`) are hooked; a file the game holds packed (`.z`) is packed on
-  demand from the mod's plain file. Not covered: the loose folders (`music`, movies) and file names that
+  demand from the mod's plain file. The music folder too (`files/music/<name>.ogg`). Not covered: the movies and file names that
   are not ASCII.
 - Lua on the game thread: `tick` (the game's 60 Hz step) and `frame`, the `room_enter` and `flag_changed`
   events, and what a script reads of the game: the room and its chests, the flags, the gear upgrades, the
@@ -75,18 +75,19 @@ hooked and the log says so.
   `player_bullet`, `player_effect`. Monster variants (`content.define_monster`, `morph`): the numbers, the scale,
   `on_hit`, `on_death` and the phases. `hud.show` for the whole HUD.
 - A mod's own picture beside the card when a chest gives its item (`Icon=` in `items.ini`, or `cleria.ui.icon`).
+- `audio.music("file.ogg")`, a music file of the mod's own. The load order in the F1 panel (for the next start).
 - `game.new_game` (from the title). The glow: `player.set_look`'s `glow`, `world.form`'s `tint`, a puppet's `glow`.
   A kill by `combat.damage` gives its EXP and SP and raises `enemy_killed`.
 - Bullets: `player_bullet` for each of the player's, and `world.show_bullet`, the same bullet again for show.
-- The blessing shop: `blessing_bought`, and `cleria.shop.add_filter`'s Buy answer (another effect, or none).
+- The blessing shop: `blessing_bought` with the price paid, and `cleria.shop.add_filter`'s Price answer (in the
+  menu, the test and the payment) and Buy answer (another effect, or none).
 - The world's filters: `"spawn"` (the multipliers and "suppress"; not another cast or level) with
   `enemy_spawned`, and `"exit"` (another room, or "suppress"; no `index` or `door`).
 
 What does not exist yet, so a script's call answers its default: a variant's name and own sprite, a puppet's
 `aura` (an effect that follows it), `hittable` and `target` (the game's monsters chase and hit only its own
-player), the boss gauge or the messages hidden alone, a music file of the mod's own, the shop filter's prices
-and rows, `unlock_character` (it would write into the player's clear records), the save profiles,
-and the load order in the game's panel.
+player), the boss gauge or the messages hidden alone, the shop filter's rows and "owned" answers,
+`unlock_character` (it would write into the player's clear records), and the save profiles.
 
 The scripted mods of `cleriacore-mods` (17 with the probes) all start and run a fight and room changes without
 a script error. **Co-op runs against a fake teammate** (`tools/coop_bot.py`), as host (the join, the

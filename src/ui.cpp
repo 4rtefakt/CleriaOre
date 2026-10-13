@@ -87,6 +87,32 @@ void mods_page(ui::List& L) {
             ui::button(L, ("    " + m.label() + ": settings").c_str(), "This mod's own page."))
             g_sub = m.m.id;
     }
+    // The load order, as the manager shows it: Left / Right move a mod. Kept for the next start.
+    if (mod_list().size() > 1) {
+        static std::vector<std::string> order;
+        if (order.size() != mod_list().size()) {
+            order.clear();
+            for (const mods::Mod& m : mod_list()) order.push_back(m.m.id);
+        }
+        ui::section(L, "Load order");
+        for (std::size_t i = 0; i < order.size(); ++i) {
+            std::string label = order[i];
+            for (const mods::Mod& m : mod_list())
+                if (m.m.id == order[i]) label = m.label();
+            char pos[32];
+            std::snprintf(pos, sizeof pos, "%d of %d", int(i) + 1, int(order.size()));
+            const ui::RowIo r = ui::row_frame(L, "Its place in the load order. Left / Right move it up / down: when two mods change the same "
+                                                 "file, the one lower in the list wins. Restart the game to apply.", true);
+            ui::row_texts(L, r, label.c_str(), pos, true);
+            const std::size_t j = i + std::size_t(r.delta);
+            if (r.delta != 0 && j < order.size()) {
+                std::swap(order[i], order[j]);
+                g_changed = true;
+                save_order(order);
+                break;
+            }
+        }
+    }
 }
 
 void init(IDirect3DDevice9* dev);
