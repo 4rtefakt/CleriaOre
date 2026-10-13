@@ -480,3 +480,15 @@ The notes themselves are gathered in the `yso` repository.
   edited and kept.
 - `ore.title new_game` now closes the title's list only if it is the one up (its New Game row still the
   loader's): from a mod's menu, which stood in the list's place, the callback alone is called.
+
+## A profile's saves that Steam does not know
+
+- Steam answers for a file only if it is in its own list of the game's files (`remotecache.vdf` beside the
+  `remote` folder). A save that lies in `remote\profiles\<name>\` as a plain file, put there by a copy or by a
+  build that kept the saves as files, is not: `FileExists` says no, and the Load page shows "No Data". Seen:
+  four saves of an Archipelago seed's profile, all "No Data".
+- The wrapped entries now give such a file to Steam once, by its own `FileWrite`, the first time the game asks
+  for a save of the profile that Steam does not have (`<Steam>\userdata\<account>\207350\remote\<name>`, Steam's
+  path from the registry). Seen: the four saves then listed on the Load page, and one loaded by the player.
+- `ore.continue` loads the most recent save of the 64 slots (of the profile, if one is set), by Steam's time for
+  each (entry 16, `GetFileTimestamp`). Written, not yet seen working.

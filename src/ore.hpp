@@ -104,6 +104,7 @@ void on_prompt_done(bool kept, const std::string& text);   // a prompt ended: th
 void on_menu_pick(int row);
 void menu_owner(const std::string& id);   // the menu now up is this one: its picks go to the mods' command "menu_<id>"
 void open_toal();                      // hooks.cpp: Character Select offers Toal for the rest of this run
+int latest_slot();                     // hooks.cpp: the most recent save's slot (of the save profile), -1 = none
 bool steam_delete(const char* name);   // hooks.cpp: for the drive's tests
 bool session_pending();                // a new game / a load whose event was not delivered yet
 int room_ticks();                      // the steps since the room was entered

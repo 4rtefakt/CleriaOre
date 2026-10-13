@@ -281,6 +281,7 @@ struct RetailHost : script::Host {
     //                                           with the row (1..), Esc picks the last row; "id:3" starts on row 3
     //   ore.prompt id|caption|text[|secret]     a line typed in such a menu (Enter keeps, Esc drops, Ctrl+V pastes):
     //                                           "menu_<id>" gets "ok <text>" or "cancel"
+    //   ore.continue                            loads the most recent save (of the save profile, if one is set)
     //   ore.new_game character=2 difficulty=2 extra=0 room=S_1000 flags=246:1,300:1
     //                                           a new game at once (each key optional): the scene it begins in, and
     //                                           flags set after the game's reset, before that scene's script
@@ -326,6 +327,9 @@ struct RetailHost : script::Host {
             const std::string first = f.size() > 2 ? f[2] : std::string(), shown = (f.size() > 3 && f[3] == "secret" ? std::string(first.size(), '*') : first) + "_";
             *ran = game_menu(caption, {std::wstring(shown.begin(), shown.end())}, 1, y);
             if (*ran) { menu_owner(f[0]); ui_prompt(first, f.size() > 3 && f[3] == "secret"); }
+        } else if (name == "ore.continue") {                                       // the most recent save (of the save profile), loaded
+            const int slot = latest_slot();
+            *ran = slot >= 0 && load_slot(slot);
         } else if (name == "ore.new_game") {
             int ch = 1, diff = 2, extra = -1;
             std::string room = "S_0000";

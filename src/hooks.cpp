@@ -9,6 +9,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <cwctype>
+#include <fstream>
 #include <filesystem>
 #include <set>
 #include <mutex>
@@ -1087,13 +1088,39 @@ const char* profiled(const char* name, std::string& hold) {
     hold = "profiles/" + save_profile() + "/" + name;
     return hold.c_str();
 }
-bool __fastcall rs_write(void* self, void*, const char* name, const void* data, int n) {
+// A save of a profile that lies in Steam's folder as a plain file (copied there, or written by something that kept
+// the saves as files) is not in Steam's own list of the game's files, and Steam then says there is none. Such a
+// file is given to Steam once, by its FileWrite: the first time the game asks for a save Steam does not have.
+// Steam's folder is <Steam>\userdata\<account>\207350\remote (the registry's SteamPath; every account is tried).
+void adopt(void* self, const char* name) {
+    static std::set<std::string> tried;
+    if (!g_rs[0] || !tried.insert(name).second) return;
+    wchar_t steam[MAX_PATH] = L"";
+    DWORD size = sizeof steam;
+    if (RegGetValueW(HKEY_CURRENT_USER, L"Software\\Valve\\Steam", L"SteamPath", RRF_RT_REG_SZ, nullptr, steam, &size) != ERROR_SUCCESS) return;
+    std::error_code ec;
+    for (const auto& account : std::filesystem::directory_iterator(std::filesystem::path(steam) / "userdata", ec)) {
+        const std::filesystem::path file = account.path() / "207350" / "remote" / name;
+        if (!std::filesystem::is_regular_file(file, ec)) continue;
+        std::ifstream in(file, std::ios::binary);
+        const std::vector<char> data{std::istreambuf_iterator<char>(in), {}};
+        in.close();
+        if (data.empty() || data.size() > (1u << 20)) return;
+        const bool ok = reinterpret_cast<bool(__thiscall*)(void*, const char*, const void*, int)>(g_rs[0])(self, name, data.data(), int(data.size()));
+        log("[save] %s: a plain file in Steam's folder, %s", name, ok ? "now given to Steam" : "which Steam would not take");
+        return;
+    }
+}bool __fastcall rs_write(void* self, void*, const char* name, const void* data, int n) {
     std::string h;
     return reinterpret_cast<bool(__thiscall*)(void*, const char*, const void*, int)>(g_rs[0])(self, profiled(name, h), data, n);
 }
 int __fastcall rs_read(void* self, void*, const char* name, void* data, int n) {
     std::string h;
-    return reinterpret_cast<int(__thiscall*)(void*, const char*, void*, int)>(g_rs[1])(self, profiled(name, h), data, n);
+    const char* as = profiled(name, h);
+    const auto read = reinterpret_cast<int(__thiscall*)(void*, const char*, void*, int)>(g_rs[1]);
+    int got = read(self, as, data, n);
+    if (got <= 0 && as != name) { adopt(self, as); got = read(self, as, data, n); }
+    return got;
 }
 bool __fastcall rs_delete(void* self, void*, const char* name) {
     std::string h;
@@ -1101,11 +1128,20 @@ bool __fastcall rs_delete(void* self, void*, const char* name) {
 }
 bool __fastcall rs_exists(void* self, void*, const char* name) {
     std::string h;
-    return reinterpret_cast<bool(__thiscall*)(void*, const char*)>(g_rs[3])(self, profiled(name, h));
+    const char* as = profiled(name, h);
+    const auto exists = reinterpret_cast<bool(__thiscall*)(void*, const char*)>(g_rs[3]);
+    if (exists(self, as)) return true;
+    if (as == name) return false;
+    adopt(self, as);
+    return exists(self, as);
 }
 int __fastcall rs_size(void* self, void*, const char* name) {
     std::string h;
-    return reinterpret_cast<int(__thiscall*)(void*, const char*)>(g_rs[4])(self, profiled(name, h));
+    const char* as = profiled(name, h);
+    const auto size = reinterpret_cast<int(__thiscall*)(void*, const char*)>(g_rs[4]);
+    int n = size(self, as);
+    if (n <= 0 && as != name) { adopt(self, as); n = size(self, as); }
+    return n;
 }
 // Wraps them, once Steam's storage is there (false: not yet, or no Steam: then the saves are files, and
 // hook_create_a moves them).
@@ -1125,7 +1161,24 @@ bool profile_storage() {
     log("[save] Steam's storage wrapped for the save profiles");
     return true;
 }
-bool steam_delete(const char* name) {   // the drive's, for tests: a file of Steam's storage by its full name
+// The most recent save of the 64 slots (of the save profile, if one is set), by Steam's own time for each
+// (ISteamRemoteStorage entry 16, GetFileTimestamp); -1: none, or no Steam.
+int latest_slot() {
+    void* rs = g_hooked ? *reinterpret_cast<void**>(0x7493b8) : nullptr;
+    if (!rs || !profile_storage()) return -1;
+    void** vt = *reinterpret_cast<void***>(rs);
+    int best = -1;
+    std::int64_t newest = 0;
+    for (int i = 0; i < 64; ++i) {
+        char name[16];
+        std::snprintf(name, sizeof name, "yso_%02d.bin", i);
+        if (!rs_exists(rs, nullptr, name)) continue;
+        std::string h;
+        const std::int64_t at = reinterpret_cast<std::int64_t(__thiscall*)(void*, const char*)>(vt[16])(rs, profiled(name, h));
+        if (best < 0 || at > newest) { best = i; newest = at; }
+    }
+    return best;
+}bool steam_delete(const char* name) {   // the drive's, for tests: a file of Steam's storage by its full name
     void* rs = g_hooked ? *reinterpret_cast<void**>(0x7493b8) : nullptr;
     if (!rs) return false;
     void** vt = *reinterpret_cast<void***>(rs);
