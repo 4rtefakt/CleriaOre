@@ -29,10 +29,17 @@ What works:
   no `power`, `class` or separate `formula` for a hit, no intermediate steps for EXP, no `cast`, `slot` or
   `chance` for a drop; a pickup has no value of its own.
 - `player.set_modifier` (max HP, ATK, DEF), on top of each of the game's stat recomputes.
-- API 7's host side: a mod's own window (`cleria.ui.window`, `message`, `choose`), `p:text`, `p:progress`
-  and `p:table`, input actions and key state (`cleria.input`), timers, the bus, commands across mods, script
-  reload, `game.state` (`title`, `play`, `cutscene`, `panel`, `window`, `gameover`: the game's own menus are
-  not told apart) and `state_changed`.
+- API 7's host side: a mod's own window (`cleria.ui.window`, `message`, `choose`), `p:text`, `p:progress`,
+  `p:table` and `p:image`, input actions and key state (`cleria.input`), timers, the bus, commands across
+  mods, script reload, `game.state` (`title`, `play`, `cutscene`, `panel`, `window`, `held`, `gameover`: the
+  game's own menus are not told apart) and `state_changed`, a mod's `.dds` images on its HUD layers.
+- `cleria.world`: the room's monsters (`actors`), `to_screen` and the `d:world_*` drawing (the camera the
+  game publishes), `set_actor`, `remove`, and `spawn` for a cast the room already holds (the game loads a
+  monster's model with the room). An actor's id is its record's address, good for the room.
+- Game operations: `player.set_position`, `set_mp`, `set_boost`, `set_exp`, heal and hurt, `game.pause`,
+  `game.set_speed`, the random seed, a sound of the game's (`audio.se`), `camera.get`.
+- `content/*.ini`: `chests.ini`, `rules.ini`, `pickups.ini` (items of the game's own), new items
+  (0x100..0x1FF) kept with the save, the retail items' patched name, description and value.
 - The events CleriaCore's content layer reports: `chest_opened`, `door_opened`, `boss_defeated`, `death`
   and `item_used`.
 - The script VM's grants: `cleria.content.add_filter` sees a script's flag stores (ops 0x64 and 0x67, not
@@ -55,10 +62,14 @@ What works:
 The hooks are for one build only, the Steam `yso_win.exe` linked 2024-01-08: on any other exe nothing is
 hooked and the log says so.
 
-What does not exist yet, so a script's call answers its default: `cleria.world` (monsters, puppets, world
-drawing), the game operations of API 7 (`game_op`: the camera, sounds, equipment, poses ...), the shop filter
-and `blessing_bought`, images and icons, `room_title`, `unlock_character`, the save profiles,
-`content/*.ini`, and the load order in the game's panel.
+What does not exist yet, so a script's call answers its default: puppets and monster variants
+(`world.puppet`, `world.form`, `content.define_monster`), the world filters (`spawn`, `exit`), a hit dealt by
+a script (`combat.hit`, `strike`, `damage`), the camera's and the fader's writes, music, `goto_room` and the
+exits, `new_game` / `load` / `retry`, the equipment and the ailments, the shop filter and `blessing_bought`,
+`room_title` (so `floor` and `zone`), item icons, `unlock_character`, the save profiles, `text*.ini`, and the
+load order in the game's panel. Co-op needs most of the first line.
+
+How to test a build by hand, and the drive that steers the game for unattended tests: [TEST_PROTOCOL.md](TEST_PROTOCOL.md).
 
 ## Build
 

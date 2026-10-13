@@ -1,0 +1,59 @@
+# Test protocol
+
+What to run by hand after a batch of host work, with the **Lua Probe** mod on (it lives in the game's
+`cleriaore/mods/lua_probe`; its page is F1 > Mods > Lua Probe: settings). Each step says what should
+happen; if the game closes instead, note the step. Afterwards `cleriaore/cleriaore.log` holds the detail.
+
+Already checked by driving the game (see "The drive" below): the F1 panel, a mod's window, images,
+`world.actors`, the world labels, `set_actor`, `remove`, `spawn`, `set_position`, pause, speed, a placed
+`pickups.ini` pickup, the HP gauge after `set_hp`. The steps below are what a script cannot easily do
+alone: fighting, chests, and how things look and feel.
+
+## 1. A fight (5 minutes)
+
+Load a save next to monsters. On the probe page, section **Combat**, everything off.
+
+1. Hit and kill a monster. Nothing unusual.
+2. **Damage dealt x10** on: monsters die in a hit or two. Off again.
+3. **Damage taken x0** on: let a monster hit you, HP stays. Off again.
+4. **Kill EXP x5** and **Kill SP x5** on: a kill gives visibly more of both. Off again.
+5. Section **Pickups and API 7**: **No drops** on, kill three monsters: nothing drops. Off again.
+6. **Gold x10** on, **Drop a gold piece on me**, walk over it: SP rises by 100, not 10.
+7. **ATK + 100** on: the stats line's ATK is 100 higher and hits are stronger. Off: back to before.
+
+## 2. The window and the keys (1 minute)
+
+1. **F6** in the game: a "Probe window" opens with a paragraph, a health bar and a small table, and the
+   game is held. **Esc** closes it and the game goes on.
+2. **Notice in 3 seconds**, close the panel: a card appears three seconds later.
+
+## 3. A chest, with the Chest Swap sample on (5 minutes)
+
+Chest Swap is CleriaCore's `samples/mods/chest_swap`; turn it on in the manager, then start the game.
+
+1. **New Game**, any character, play to the first chest room (S_1001, the first room up the stairs) and
+   open the chest behind the barrier monster.
+2. The box says you got the **Lantern of Solace**, not the Celcetan Panacea, and a card reads "The
+   Lantern of Solace glows softly." No item icon rises from the chest (a mod's own item has no icon in
+   the game's table).
+3. Go to the first goddess statue room (S_1009): a Roda Fruit lies beside the statue. Take it; leave the
+   room and come back: it is not there again.
+4. Save, quit to the title, load: the fruit stays collected.
+
+## 4. Longer play (as long as you like)
+
+Play normally with only the mods you would really use. What to watch for: a hitch when entering a room,
+a monster that does not die at 0 HP, a level-up or an equipment change that gives odd numbers, a crash
+on a boss's death.
+
+## The drive
+
+For tests without a person at the keyboard, the loader can be steered from outside. Start the game with
+the environment variable `CLERIAORE_DRIVE` set; each frame it then reads, in `cleriaore/drive/`:
+
+- `keys.txt`: the keys held, as hexadecimal DirectInput codes (`D0` Down, `34` the period key, the OK of
+  the game's WASD preset); they reach the game with or without the window's focus;
+- `cmd.txt`: one `cleria.command` a line (`name args`), run and the file removed; `panel` toggles F1.
+
+The probe mod has commands for it: `actors`, `labels`, `weaken`, `remove`, `tp x y z`, `speed f`,
+`hold 0|1`, `image`, `window`, and `lua <code>` for anything else.
