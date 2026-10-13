@@ -64,6 +64,16 @@ int __fastcall hook_read(Reader* r, void*, void* dst, std::uint32_t n, std::uint
 // they floor the award.
 constexpr std::uintptr_t kExpRate = 0x76a5fc;
 constexpr std::uintptr_t kDealt = 0x4fc802, kTaken = 0x4fdc58, kExpKill = 0x4fcc07, kKill = 0x4fcc18, kExpBoss = 0x4fa525, kExpOther = 0x5226c7;
+// FUN_00430ef0(ecx scene id, edx force): a room change is asked for (a door's fade, a script's ChangeScene, a warp,
+// the title's and the movies' own). The mods' "exit" filter may send it elsewhere or refuse it.
+constexpr std::uintptr_t kScene = 0x430ef0;
+constexpr std::uint8_t kSceneBytes[] = {0x55, 0x8b, 0xec, 0x83, 0xe4, 0xf8, 0x81, 0xec, 0x00, 0x01, 0x00, 0x00, 0x80, 0x3d, 0xbe, 0x93};
+using SceneFn = int(__fastcall*)(int scene, int force);
+SceneFn g_scene = nullptr;
+int __fastcall hook_scene(int scene, int force) {
+    const int to = exit_filter(scene);
+    return to ? g_scene(to, force) : int(0x80004005);   // refused, as while another change is pending
+}
 // FUN_0045a2f0, GoActor's update (its vtable's third entry): a jump to the actor's handler, by its index at +0x120.
 // An actor a mod holds is not updated: it stays where and as it was put. It is still drawn: a handler hands its
 // actor to the frame's draw list itself, so the hook does that part (FUN_00473540) in the handler's place.
@@ -559,7 +569,7 @@ const Site kSites[] = {
     SITE(kExpKill, kExpKillBytes, &hook_exp_kill, &g_exp_kill), SITE(kKill, kKillBytes, &hook_kill, &g_kill),
     SITE(kExpBoss, kExpAddBytes, &hook_exp_boss, &g_exp_boss), SITE(kExpOther, kExpAddBytes, &hook_exp_other, &g_exp_other),
     SITE(kRecompute, kRecomputeBytes, &hook_recompute, &g_recompute), SITE(kPart, kPartBytes, &hook_part, &g_part),
-    SITE(kActorUpdate, kActorUpdateBytes, &hook_actor_update, &g_actor_update),
+    SITE(kActorUpdate, kActorUpdateBytes, &hook_actor_update, &g_actor_update), SITE(kScene, kSceneBytes, &hook_scene, &g_scene),
     SITE(kSpawn, kSpawnBytes, &hook_spawn, &g_spawn),       SITE(kTouch, kTouchBytes, &hook_touch, &g_touch),
 };
 #undef SITE

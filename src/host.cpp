@@ -905,6 +905,31 @@ script::Host& host() {
 // The player's motion constants are copied from CASTINFO into its actor when it is built (each room): the speed
 // base at +0x30c (CASTINFO +0x48), the jump's first velocity at +0x408. The mods' factors are kept on top of
 // whatever the game last put there.
+// A room change between two of the game's rooms ("S_nnnn"; not the title, a movie or the first room of a session):
+// q.from, q.to; the answer's `to` names another room, "suppress" cancels it. index and door are not known here
+// (-1, ""): the request does not say which door asked.
+int exit_filter(int scene) {
+    if (!world_on("exit")) return scene;
+    const char* recs = *reinterpret_cast<const char**>(0x74c124);
+    const int count = *reinterpret_cast<const std::int32_t*>(0x74e230);
+    const std::string from = host().room();
+    if (!recs || scene <= 0 || scene >= count || from.empty()) return scene;
+    std::string to(recs + std::size_t(scene) * 0x1c8 + 4);
+    while (!to.empty() && to.back() == '\\') to.pop_back();
+    if (const std::size_t k = to.rfind('\\'); k != std::string::npos) to.erase(0, k + 1);
+    for (char& c : to) c = char(std::toupper(static_cast<unsigned char>(c)));
+    if (to.rfind("S_", 0) != 0) return scene;
+    script::WorldQuery q;
+    q.kind = "exit";
+    q.num = {{"index", -1.0}};
+    q.str = {{"from", from}, {"to", to}, {"door", ""}};
+    const script::WorldDecision d = world_filter(q);
+    if (d.action == script::WorldDecision::Action::Suppress) return 0;
+    if (d.action != script::WorldDecision::Action::Replace) return scene;
+    const auto it = d.str.find("to");
+    const char* rec = it == d.str.end() ? nullptr : RetailHost::scene_rec(it->second);
+    return rec ? int(*reinterpret_cast<const std::uint16_t*>(rec)) : scene;
+}
 void world_tick() {
     if (hooked() && *reinterpret_cast<char**>(0x74c09c)) RetailHost::new_monsters();
 }

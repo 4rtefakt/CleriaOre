@@ -65,9 +65,11 @@ hooked and the log says so.
 - Puppets (`world.puppet`, `set_puppet`, `remove_puppet`, `prop`: any of the three characters or a cast's
   sprite as an actor the mod moves; not `hittable`, `target`, `glow`, `aura`), `world.form` (the numbers and
   `ai`; not the look), `world.snapshot` and `world.apply`, `world.spawn` for any monster cast.
+- The world's filters: `"spawn"` (the multipliers and "suppress"; not another cast or level) with
+  `enemy_spawned`, and `"exit"` (another room, or "suppress"; no `index` or `door`).
 
 What does not exist yet, so a script's call answers its default: monster variants
-(`content.define_monster`), the world filters (`spawn`, `exit`), a puppet's effects and bullets, the camera's and the fader's writes, music, the
+(`content.define_monster`), a puppet's effects and bullets, the camera's and the fader's writes, music, the
 exits, `new_game` / `load` / `retry`, the equipment and the ailments, the shop filter and `blessing_bought`,
 item icons, `unlock_character`, the save profiles, `text*.ini`, and the
 load order in the game's panel. Co-op needs most of the first line.

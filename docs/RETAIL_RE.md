@@ -104,3 +104,17 @@ The notes themselves are gathered in the `yso` repository.
   `remove_puppet`, `prop`.
 - `world.apply` does not build a monster that the snapshot has and the room has not (an id cannot be given
   to a new actor), and a monster it lets fall drops its items.
+
+## The world's filters
+
+- **"spawn" is asked after the fact.** The loader does not hook the factory: each step it looks for monsters
+  in the actor list it has not seen in this room, and puts each through the filter once. The answer's
+  multipliers are applied to the built actor (max HP +0x94, HP +0x98, ATK +0xa4, DEF +0xa8, EXP +0xb0, SP
+  +0xc4 as an int); "suppress" removes it at the game's next sweep. A monster therefore lives one step with
+  its own numbers, and the filter cannot change its cast or its level. Driven in S_1001: seven of cast 14 at
+  180 HP and ATK 76 (60 and 38 without), the two of cast 19 gone, `enemy_spawned` seven times, and an eighth
+  for `world.spawn`.
+- **"exit" is asked in the scene request itself** (`FUN_00430ef0`, hooked at its entry), for a change from one
+  `S_nnnn` room to another. The request carries a scene id only: which door asked is not known there, so
+  `index` is -1 and `door` empty. Driven: `goto_room("S_1001")` sent to S_1099 by the filter; a change to
+  S_2099 refused, the game staying in play.
