@@ -641,6 +641,30 @@ int on_part_damage(int value, const void* victim, const void* source) {
     return d;
 }
 
+// forward: defined below
+float on_exp(float value, int source, const void* victim);
+void on_kill(const void* victim, float* sp);
+// A monster a script's hit killed (cleria.combat.damage) is credited as the applier's kill block credits one of the
+// player's: the EXP (its base scaled by the levels' gap: x1.5 a level up to three above the player, /1.5 a level
+// below; x0.6666, the rate, the difficulty; then the chain), the SP, the "exp" and "sp" filters, enemy_killed.
+void script_kill(void* victim) {
+    if (!victim || (field<std::uint32_t>(victim, kActFlags) & kActCredited)) return;
+    auto mem = [](std::uintptr_t a) { return *reinterpret_cast<const float*>(a); };
+    auto flag = [](std::uintptr_t a) { return *reinterpret_cast<const std::int32_t*>(a) != 0; };
+    script::Host& h = host();
+    const int d = field<std::int32_t>(victim, kActLevel) - int(h.stat(script::Host::Stat::Level));
+    const double gap = std::pow(1.5, d >= 0 ? (std::min)(d, 3) : d);
+    const double diff = flag(0x76bc48) ? double(mem(0x6bd580)) : flag(0x76bb58) ? double(mem(0x6bd464)) : 1.0;
+    const double chain = 1.0 + double(*reinterpret_cast<const std::int32_t*>(0x76c1a8)) * double(mem(0x6bd084));
+    float exp = float((std::max)(1.0, std::floor(double(field<float>(victim, kActExp)) * gap * 0.6666 * double(mem(0x76a5fc)) * diff)) * chain);
+    exp = on_exp(exp, 0, victim);
+    if (exp > 0) h.add_exp(exp);
+    float sp = float(field<std::int32_t>(victim, kActSp));
+    on_kill(victim, &sp);
+    if (sp > 0) add_sp(scale_sp(int(sp)));
+    *reinterpret_cast<std::uint32_t*>(static_cast<char*>(victim) + kActFlags) |= kActCredited;
+}
+
 // An EXP award above 0, as it joins the total.
 float on_exp(float value, int source, const void* victim) {
     using Kind = script::CombatQuery::Kind;

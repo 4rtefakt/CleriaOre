@@ -38,7 +38,8 @@ What works:
   monster's model with the room). An actor's id is the game's own instance id, good for the room.
 - Game operations: `player.set_position`, `set_mp`, `set_boost`, `set_exp`, heal and hurt, `game.pause`,
   `game.set_speed`, `game.room_title` (the game's scene table; so `floor` and `zone`), `game.goto_room` (the request a script's ChangeScene makes), the random seed, a sound of the game's (`audio.se`), `camera.get`, `player.pose` and `familiars`, `player.tune` (speed and jump; not the MP, Boost and air-jump keys), `player.set_invulnerable`, a script's hits (`combat.damage` on a monster, `combat.strike` on the player, without the flinch), `world.boss` (the gauge; no `actor` for a boss built of map objects) and `combat.boss_bonus`. The "damage" filter also sees the player's hits on a boss's parts. What was learnt of the retail game for these is in [RETAIL_RE.md](RETAIL_RE.md).
-- `content/*.ini`: `chests.ini`, `rules.ini`, `pickups.ini` (items of the game's own), new items
+- `content/*.ini`: `chests.ini`, `rules.ini`, `pickups.ini` (items of the game's own), `text.ini` (a script's
+  strings), new items
   (0x100..0x1FF) kept with the save, the retail items' patched name, description and value.
 - The events CleriaCore's content layer reports: `chest_opened`, `door_opened`, `boss_defeated`, `death`
   and `item_used`.
@@ -69,21 +70,22 @@ hooked and the log says so.
   `stop_music`, `screen.fade` and `flash`.
 - Sessions: `game.load` (from the title too), `game.retry`, `game.to_title`. The camera: `camera.set` and `reset`,
   `camera.shake`, `camera.look_at`. `audio.se_file`, a WAV of the mod's (by Windows: one at a time, untested). Effects: `player_effect` and `world.puppet_effect`. `script.run`, a script of the game's.
-- The room's doors: `game.exits` and `take_exit`. The look: the `scale` of `player.set_look` and of `world.form` (not
-  the glow or the tint).
+- The room's doors: `game.exits` and `take_exit`. The look: the `scale` of `player.set_look` and of `world.form`.
 - API 7's events from the game: `enemy_hit`, `player_hit`, `level_up`, `floor_changed`, `retry`, `enemy_spawned`,
   `player_bullet`, `player_effect`. Monster variants (`content.define_monster`, `morph`): the numbers, the scale,
   `on_hit`, `on_death` and the phases. `hud.show` for the whole HUD.
+- `game.new_game` (from the title). The glow: `player.set_look`'s `glow`, `world.form`'s `tint`, a puppet's `glow`.
+  A kill by `combat.damage` gives its EXP and SP and raises `enemy_killed`.
 - Bullets: `player_bullet` for each of the player's, and `world.show_bullet`, the same bullet again for show.
 - The blessing shop: `blessing_bought`, and `cleria.shop.add_filter`'s Buy answer (another effect, or none).
 - The world's filters: `"spawn"` (the multipliers and "suppress"; not another cast or level) with
   `enemy_spawned`, and `"exit"` (another room, or "suppress"; no `index` or `door`).
 
-What does not exist yet, so a script's call answers its default: a variant's name, tint and own sprite, a
-puppet's `glow`, `aura`, `hittable` and `target` (the game's monsters chase and hit only its own player), the
-boss gauge or the messages hidden alone, `new_game`, a music file of the mod's own, the shop filter's prices and rows, item icons,
-`unlock_character` (it would write into the player's clear records), the save profiles, `text*.ini`, and the
-load order in the game's panel.
+What does not exist yet, so a script's call answers its default: a variant's name and own sprite, a puppet's
+`aura` (an effect that follows it), `hittable` and `target` (the game's monsters chase and hit only its own
+player), the boss gauge or the messages hidden alone, a music file of the mod's own, the shop filter's prices
+and rows, item icons, `unlock_character` (it would write into the player's clear records), the save profiles,
+and the load order in the game's panel.
 
 The scripted mods of `cleriacore-mods` (17 with the probes) all start and run a fight and room changes without
 a script error. **Co-op runs against a fake teammate** (`tools/coop_bot.py`), as host (the join, the

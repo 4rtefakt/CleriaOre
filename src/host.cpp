@@ -372,6 +372,9 @@ struct RetailHost : script::Host {
         bool identity() const { return dist == 1.0f && fov == 1.0f && off[0] == 0 && off[1] == 0 && off[2] == 0; }
     };
     static CamLayer& cam_layer() { static CamLayer c; return c; }
+    // A sprite's glow: the colour added to it as it is lit (FUN_00473c60), ARGB at +0x2b4, the alpha its strength.
+    // It is what an animation script's anime_SetAura writes; 0 = none.
+    static void glow(char* a, std::uint32_t rgb) { in<std::uint32_t>(a, 0x2b4) = rgb ? (0xc0000000u | rgb) : 0u; }
     static char* find_monster(int id) {
         const int n = at<std::int32_t>(kActorCount);
         for (int i = 0; i < n && i < 256; ++i)
@@ -434,6 +437,28 @@ struct RetailHost : script::Host {
             return !text.empty() && PlaySoundW(std::filesystem::u8path(text).c_str(), nullptr, SND_FILENAME | SND_ASYNC | SND_NODEFAULT) != FALSE;
         }
         if (op == "load") return load_slot(int(arg(0, -1)));                      // from the title too
+        // A new game, as the title's Difficulty popup starts one (menu_re/TITLE_DRAW.md §6.3): the character (flag
+        // 150) and the difficulty's three cells, the game's own new-game init (FUN_0041fd10, which keeps the
+        // character), then the title's "finish" (FUN_005758f0): a fade-out to the scene s_00\s_0000. From the title
+        // only: (character 1..3, difficulty 0 Very Easy .. 4 Nightmare).
+        if (op == "new_game") {
+            const char* first = scene_rec("S_0000");
+            if (!hooked() || game_state() != "title" || !first) return false;
+            const int ch = std::clamp(int(arg(0, 1)), 1, 3), diff = std::clamp(int(arg(1, 2)), 0, 4);
+            at<std::int32_t>(0x76b91c + 4 * 150) = ch;
+            at<std::uint8_t>(0x74ac3c) = std::uint8_t(diff == 3 ? 1 : diff == 4 ? 2 : 0);
+            at<std::uint8_t>(0x74e685) = diff <= 1;
+            at<std::uint8_t>(0x74e684) = diff == 0;
+            at<std::uint8_t>(0x74e25f) = 0;
+            at<std::uint8_t>(0x74e25e) = 0;                                       // the story, not Time Attack or the Arena
+            reinterpret_cast<void(__cdecl*)()>(0x41fd10)();
+            // The title's own tick commits its staged scene when its fade ends; without the title object's flag
+            // nothing would, so the change is asked for here, at once.
+            at<std::int32_t>(0x769fb8) = *reinterpret_cast<const std::uint16_t*>(first);
+            std::memset(&at<char>(0x769fbc), 0, 0x194);
+            stop_bgm(1500);
+            return request_scene(*reinterpret_cast<const std::uint16_t*>(first), 1) == 0;
+        }
         if (!in_game()) return false;
         char* player = at<char*>(kPlayer);
         const bool alive = at<float>(kHp) >= 1;
@@ -506,13 +531,14 @@ struct RetailHost : script::Host {
         }
         // A hit of a script's on a monster: the HP it takes and the event bits the game's own applier (FUN_004fbb40)
         // leaves at +0x3bc for the monster's brain: 4 struck, 2 hurt, 0x10 killed (HP 0). The brain plays the flinch
-        // or the death and its drops. No EXP or SP: the applier credits those to the hitter itself.
+        // or the death and its drops. A kill is credited here (script_kill), as the applier's kill block would.
         if (op == "hit") {
             char* a = find_monster(int(arg(0, -1)));
             const int dmg = int(arg(1));
             if (!alive || !a || dmg < 0) return false;
             in<std::uint32_t>(a, 0x3bc) |= dmg > 0 ? 6u : 4u;
             if (in<float>(a, kAHp) - float(dmg) < 1.0f) {
+                script_kill(a);                                                   // the EXP and SP of a kill of the player's
                 in<float>(a, kAHp) = 0;
                 in<std::uint32_t>(a, 0x3bc) |= 0x10;
             } else {
@@ -581,7 +607,8 @@ struct RetailHost : script::Host {
             if (!out) return false;
             *out = {double(in<float>(player, kAPos)), double(in<float>(player, kAPos + 4)), double(in<float>(player, kAPos + 8)),
                     double(in<float>(player, kAYaw) * 57.29577951f), double(in<std::int32_t>(player, 0x9b0)), double(in<std::int32_t>(player, 0x9b8)),
-                    double(in<std::int32_t>(player, 0x97c)), 0.0, double(in<std::uint32_t>(player, 0x2b4))};
+                    double(in<std::int32_t>(player, 0x97c)),
+                    in<std::uint32_t>(player, 0x2b4) >> 24 ? double(in<std::uint32_t>(player, 0x2b4) & 0xffffffu) : 0.0, 0.0};
             return true;
         }
         if (op == "familiars") {                                                  // Hugo's Eyes: the actors of cast 176
@@ -609,9 +636,10 @@ struct RetailHost : script::Host {
             in<float>(a, kADef) *= mul(3);
             in<float>(a, 0xb0) *= mul(4);
             in<std::int32_t>(a, 0xc4) = int(float(in<std::int32_t>(a, 0xc4)) * mul(5));
-            // The look: the scale the draw takes from the actor (+0x248, FUN_004740e0's last argument). The tint is not
-            // backed: the colour at +0x148 did not show when written.
+            // The look: the scale the draw takes from the actor (+0x248), and for the tint the colour its sprite is lit
+            // with on top of the room's light (+0x2b4, see glow()).
             if (arg(6, -1) > 0) in<float>(a, 0x248) = float(std::clamp(arg(6), 0.2, 5.0));
+            if (arg(7, -1) >= 0) glow(a, std::uint32_t(arg(7)) & 0xffffffu);
             if (std::isfinite(arg(8, NAN))) hold(a, arg(8) == 0);
             return true;
         }
@@ -713,6 +741,7 @@ struct RetailHost : script::Host {
             if (n.size() > 5 && std::isfinite(n[5])) in<std::int32_t>(a, 0x9b0) = int(n[5]);
             if (n.size() > 6 && std::isfinite(n[6])) in<std::int32_t>(a, 0x9b8) = (std::max)(0, int(n[6]));
             if (n.size() > 7 && std::isfinite(n[7]) && n[7] >= 0 && n[7] < 269) in<std::int32_t>(a, 0x97c) = int(n[7]);
+            if (n.size() > 10 && std::isfinite(n[10])) glow(a, std::uint32_t((std::max)(0.0, n[10])) & 0xffffffu);
             return true;
         }
         if (op == "show_bullet") return alive && n.size() >= 19 && ore::show_bullet(n.data());
@@ -853,8 +882,9 @@ struct RetailHost : script::Host {
             at<std::int32_t>(0x76a538) = *reinterpret_cast<const std::int32_t*>(e + 0x3c);
             return true;
         }
-        if (op == "player_look") {                                                // (scale, glow): the player's own sprite; the glow is not backed
+        if (op == "player_look") {                                                // (scale, glow 0xRRGGBB, or under 0 for none): the player's own sprite
             if (std::isfinite(arg(0, NAN))) in<float>(player, 0x248) = float(std::clamp(arg(0), 0.3, 3.0));
+            if (std::isfinite(arg(1, NAN))) glow(player, arg(1) < 0 ? 0u : std::uint32_t(arg(1)) & 0xffffffu);
             return true;
         }
         // The game's HUD has one fade for all its parts (0x74e688, and the tint 0x74e68c made from it each step): a
@@ -983,6 +1013,7 @@ struct RetailHost : script::Host {
         ui::info(*static_cast<ui::List*>(list), label.c_str(), value.c_str(), col, desc.empty() ? nullptr : desc.c_str());
     }
     int load_image(const std::filesystem::path& file) override { return ui_load_image(file); }
+    void register_icon(int id, const std::filesystem::path& file) override { ui_item_icon(id, file); }
     void draw_image(int handle, float x0, float y0, float x1, float y1, std::uint32_t tint) override {
         if (!g_hud) return;
         if (void* t = ore::ui_image(handle)) g_hud->AddImage(ImTextureID(reinterpret_cast<std::intptr_t>(t)), {x0, y0}, {x1, y1}, {0, 0}, {1, 1}, tint);

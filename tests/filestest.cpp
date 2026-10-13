@@ -15,6 +15,12 @@
 namespace fs = std::filesystem;
 using namespace ore;
 
+namespace ore {   // what files.cpp asks of the loader: here, no game and no text.ini
+bool game_file_own(const char*, std::vector<std::uint8_t>&) { return false; }
+bool content_text_on() { return false; }
+int content_patch_script(const std::string&, std::vector<std::uint8_t>&) { return 0; }
+}  // namespace ore
+
 int main() {
     int failed = 0;
     auto check = [&](const char* what, bool ok) {

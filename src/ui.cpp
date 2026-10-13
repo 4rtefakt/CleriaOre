@@ -39,6 +39,8 @@ bool g_modal = false;                 // a mod's own window is open: it has the 
 bool g_modal_pause = false;           // ... and holds the game
 
 struct Notice { std::string head, text; double t = -100; } g_notice;
+std::map<int, int> g_item_icons;                       // item id -> image handle
+struct { int image = 0; double t = -100; } g_icon;     // the icon shown beside the card
 
 double now() { return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count(); }
 
@@ -169,6 +171,34 @@ void drive_poll() {
             if (l.empty()) continue;
             if (l == "panel") { g_panel.open = !g_panel.open; continue; }
             if (l == "rawactors") { host().game_op("drive", "actors_raw", {}, {}, nullptr); continue; }   // the live list, to the log
+            // For study: "peek <addr> [n]" logs n dwords, "poke <addr> <value>" writes one; hexadecimal, and "p+off"
+            // for an offset into the player's actor.
+            if (l.rfind("peek ", 0) == 0 || l.rfind("poke ", 0) == 0) {
+                char where[64] = "";
+                unsigned second = 0;
+                const int got = std::sscanf(l.c_str() + 5, "%63s %x", where, &second);
+                std::uintptr_t base = 0;
+                const char* num = where;
+                if (where[0] == 'p' && where[1] == '+') { base = *reinterpret_cast<std::uintptr_t*>(0x74c09c); num = where + 2; }
+                const std::uintptr_t addr = base + std::strtoul(num, nullptr, 16);
+                if (got < 1 || addr < 0x10000 || (where[0] == 'p' && !base)) { log("[drive] %s: no address", l.c_str()); continue; }
+                if (l[1] == 'o') {
+                    if (got == 2) *reinterpret_cast<std::uint32_t*>(addr) = second;
+                    log("[drive] poke %08x = %08x", unsigned(addr), second);
+                } else {
+                    std::string out;
+                    char t[40];
+                    for (unsigned k = 0; k < (got == 2 && second ? (std::min)(second, 64u) : 1u); ++k) {
+                        const std::uint32_t v = reinterpret_cast<std::uint32_t*>(addr)[k];
+                        float f;
+                        std::memcpy(&f, &v, 4);
+                        std::snprintf(t, sizeof t, " %08x(%g)", v, double(f));
+                        out += t;
+                    }
+                    log("[drive] peek %s (%08x):%s", where, unsigned(addr), out.c_str());
+                }
+                continue;
+            }
             const bool ok = host().run_command(l.substr(0, sp), sp == std::string::npos ? std::string() : l.substr(sp + 1));
             log("[drive] %s%s", l.c_str(), ok ? "" : ": no such command");
         }
@@ -237,6 +267,14 @@ void draw_window(ImDrawList* dl, float w, float h, const ui::Nav& nav) {
 
 void draw_notice(ImDrawList* dl, float w, float h) {
     if (now() - g_notice.t < 5.0) ui::toast(dl, w, h, g_notice.head.c_str(), g_notice.text.c_str());
+    if (now() - g_icon.t < 5.0) {                      // an item's icon: a framed square left of where the card is
+        if (void* tex = ui_image(g_icon.image)) {
+            const float side = 74.0f * ui::S, x = w * 0.5f - 170.0f * ui::S - side - 8.0f * ui::S, y = h - 105.0f * ui::S;
+            dl->AddRectFilled({x, y}, {x + side, y + side}, IM_COL32(10, 14, 28, 240));
+            dl->AddImage(static_cast<ImTextureID>(reinterpret_cast<std::uintptr_t>(tex)), {x + 5.0f * ui::S, y + 5.0f * ui::S}, {x + side - 5.0f * ui::S, y + side - 5.0f * ui::S});
+            dl->AddRect({x, y}, {x + side, y + side}, ui::kGold, 0.0f, 0, 1.1f * ui::S);
+        }
+    }
 }
 
 HRESULT WINAPI hook_end_scene(IDirect3DDevice9* dev) {
@@ -395,5 +433,15 @@ bool ui_key_down(const std::string& name, bool pad) {
 }
 
 void ui_notice(const std::string& head, const std::string& text) { g_notice = {head, text, now()}; }
+void ui_item_icon(int item, const std::filesystem::path& file) {
+    if (const int h = ui_load_image(file)) g_item_icons[item] = h;
+}
+bool ui_show_item_icon(int item) {
+    const auto it = g_item_icons.find(item);
+    if (it == g_item_icons.end()) return false;
+    g_icon.image = it->second;
+    g_icon.t = now();
+    return true;
+}
 
 }  // namespace ore

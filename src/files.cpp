@@ -1,6 +1,7 @@
 #include "files.hpp"
 
 #include <algorithm>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -62,7 +63,8 @@ const vfs::Entry* provided(const std::string& name) {
 }  // namespace
 
 TocEntry* lookup(const char* path) {
-    if (!path || vfs::table().empty()) return nullptr;
+    const bool text = content_text_on();
+    if (!path || (vfs::table().empty() && !text)) return nullptr;
     // As FUN_005defa0 reads a path: lowercase, without the leading "data\", "\.\" and "\..\" folded.
     std::string p(path);
     std::transform(p.begin(), p.end(), p.begin(), [](char c) { return c >= 'A' && c <= 'Z' ? char(c + 32) : c; });
@@ -76,18 +78,28 @@ TocEntry* lookup(const char* path) {
     const vfs::Entry* e = provided(name);
     const bool z = !e && name.size() > 2 && name.compare(name.size() - 2, 2, ".z") == 0;
     if (z) e = provided(name.substr(0, name.size() - 2));
-    if (!e) return nullptr;
+    // A script (".xso.z") may have new strings from a mod's text*.ini: the game's own file, or the mod's, rewritten.
+    const bool script = text && z && name.size() > 6 && name.compare(name.size() - 6, 6, ".xso.z") == 0;
+    if (!e && !script) return nullptr;
 
-    const std::string who = vfs::layers()[std::size_t(e->layer)].id;
+    std::string who = e ? vfs::layers()[std::size_t(e->layer)].id : std::string("the game's own");
     auto b = std::make_unique<Blob>();
     std::vector<std::uint8_t> raw;
-    if (!read_file(e->file, z ? raw : b->data)) {
-        log("[files] %s: %s cannot be read (%s)", name.c_str(), e->file.string().c_str(), who.c_str());
+    if (e) {
+        if (!read_file(e->file, z ? raw : b->data)) {
+            log("[files] %s: %s cannot be read (%s)", name.c_str(), e->file.string().c_str(), who.c_str());
+            return nullptr;
+        }
+    } else if (!game_file_own(path, raw)) {
         return nullptr;
     }
+    if (script) {
+        const int n = content_patch_script(name.substr(0, name.size() - 2), raw);
+        if (!e && n == 0) return nullptr;
+        if (n) who += ", " + std::to_string(n) + " string(s) from text.ini";
+    }
     if (z && (raw.size() > kUnpackMax || !pack(raw, b->data))) {
-        log("[files] %s: %s is larger than the game can unpack (%zu bytes, %zu at most) (%s)", name.c_str(),
-            e->file.string().c_str(), raw.size(), kUnpackMax, who.c_str());
+        log("[files] %s: larger than the game can unpack (%zu bytes, %zu at most) (%s)", name.c_str(), raw.size(), kUnpackMax, who.c_str());
         return nullptr;
     }
     b->entry.size = std::uint32_t(b->data.size());

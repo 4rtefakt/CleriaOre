@@ -31,6 +31,11 @@ bool hooked();                         // hooks.cpp: the hooks are in (this proc
 // hooks.cpp, the game thread: a file as the game reads it ("data\map\s_10\s_1001\s_box01.xso.z"; a mod's
 // override, else the game's archive), a ".z" unpacked. False: there is none.
 bool game_file(const char* path, std::vector<std::uint8_t>& out);
+bool game_file_own(const char* path, std::vector<std::uint8_t>& out);   // the game's own file, unpacked: no mod's override
+// content.cpp: text*.ini. Whether any is loaded, and a script's bytes rewritten with its new strings (`name` as the
+// game's path under data\, without ".z"); -> the number of strings replaced.
+bool content_text_on();
+int content_patch_script(const std::string& name, std::vector<std::uint8_t>& xso);
 void set_exp_factor(float f);          // hooks.cpp: the game's own EXP rate, which every award is multiplied by
 // Combat, asked by hooks.cpp as the game applies it (the game thread). An actor is the game's own record.
 // -> the damage that leaves the HP. `source` is the object that hit (the formula's first argument: its ATK at +0xa4,
@@ -42,6 +47,7 @@ void on_effect(const void* actor, const std::int32_t* args);                    
 bool puppet_effect(void* actor, const double* n);                                // hooks.cpp: (id, fwd, angle, voff, scale, attach) on that actor
 bool load_slot(int slot);                                                        // hooks.cpp: the Load page's own read of a save, 0-based
 bool show_bullet(const double* n);                                               // hooks.cpp: the 19 numbers of a player_bullet event, as a bullet that hurts nobody
+void script_kill(void* victim);                                                  // a script's hit killed this monster: its EXP and SP, as a kill of the player's
 int on_blessing(int index);                                                      // a blessing's effect is about to be given: -> the index, -1 = none
 int on_part_damage(int value, const void* victim, const void* source);           // the same for a hit on a map object (a boss's part)
 float on_exp(float value, int source, const void* victim);    // -> the EXP awarded; source 0 a kill, 1 a boss

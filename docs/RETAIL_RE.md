@@ -224,8 +224,13 @@ The notes themselves are gathered in the `yso` repository.
 - **An actor's scale is the float at +0x248**, the last argument its draw (`FUN_004740e0`) hands on. Driven in
   S_1001: the player at 1.6, a monster at 2 and another at 0.6, each drawn at that size, the running ones
   included (a handler does not write it back).
-- The colour at +0x148 (the draw's first argument) did not tint the sprite when written, on the player or on a
-  held monster. **Open:** where a sprite's tint comes from.
+- **A sprite's colour is rebuilt every step** by `FUN_00473c60`, into +0x148: writing +0x148 itself is undone
+  at once (it read `ffffffff` again 0.6 s after a poke). What that function adds is the actor's own light:
+  the ARGB at +0x2b4, its alpha the strength, added to the lit colour (it is what an animation script's
+  anime_SetAura writes), and three signed bytes at +0x4bb..+0x4bd, a negative one darkening its channel, a
+  positive one adding to it. Driven: `c0ff2020` at +0x2b4 turned Hugo glowing red, and it stays until
+  written again; in S_1001 the player green, monsters red and blue. Backs `player.set_look`'s `glow`,
+  `world.form`'s `tint`, a puppet's `glow`, and the `glow` of `player.pose`.
 
 ## The HUD
 
@@ -242,3 +247,38 @@ The notes themselves are gathered in the `yso` repository.
   Retry raises it too; `floor_changed` from the floor in the room's name. Driven in S_1001 and S_1009: all
   but `retry` seen with the right numbers, and a monster variant defined in Lua (four times the HP, a phase at
   half, `on_hit`, `on_death`) ran its callbacks.
+
+## A kill by a script
+
+- `combat.damage` that takes a monster under 1 HP now credits it as the applier's kill block would: the EXP
+  as `max(1, floor(base * gap * 0.6666 * rate * difficulty)) * chain`, the gap 1.5 to the power of the
+  levels' difference (at most three levels up), through the "exp" filter; the SP through the game's own
+  scaling (`FUN_004fa390`) and the "sp" filter; `enemy_killed`; and the monster's once-only credit bit.
+  Driven in S_1001: two kills of cast 14 (level 1 against the player's 11) gave 1.00 EXP and 4 SP each, the
+  same as a kill by a shot. [H] the gap's formula is CleriaCore's reading of `FUN_004fa2f0`, not re-derived.
+
+## A new game
+
+- The title's Difficulty popup starts a game by writing the character (flag 150) and the difficulty's cells
+  (`0x74ac3c` 0 / 1 Hard / 2 Nightmare, `0x74e685` easy, `0x74e684` very easy), calling the new-game init
+  `FUN_0041fd10`, and finishing the title toward the scene `s_00\s_0000`. The title object's own tick commits
+  that scene at the end of its fade; from outside, the staged scene alone does nothing (the game stayed on the
+  title), and asking for the scene (`FUN_00430ef0`, forced) does it. Driven from the title: the game went to
+  S_0000 and asked its first question, "SP Bonus Acquisition". Backs `game.new_game`.
+
+## Study commands of the drive
+
+- `peek <addr> [n]` logs n dwords (as hex and as floats) and `poke <addr> <value>` writes one; `p+<offset>`
+  addresses the player's actor. How the glow was found: poke, look, peek again.
+
+## A script's text
+
+- **A script file (XSO) can be rewritten as the game loads it.** The file is a header (the code's length in
+  words at +0x1c, the string count at +0x20), the code, one offset a string, and the string pool, which ends
+  the file (2,225 files checked: nothing follows the pool but up to three bytes of padding, and no other
+  field of the header measures it). The game asks for every script through the archive lookup the loader
+  already hooks (`data\map\s_10\s_1009\SAVE.xso.z`); for a script a mod's `text*.ini` names, the game's own
+  file is read through the original functions, its pool written again with the new strings, packed, and
+  served. Driven with the Chest Swap sample: S_1009's statue script, four strings, one replaced. The game
+  asks for the statue scripts of many rooms as it starts, so a text change is in place before the room is
+  entered. Not seen on screen: the line is the one after a statue's cleanse.

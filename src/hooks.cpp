@@ -6,6 +6,7 @@
 
 #include <cstdint>
 #include <cctype>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -735,6 +736,20 @@ void set_exp_factor(float f) {
     if (g_hooked) *reinterpret_cast<float*>(kExpRate) = f;
 }
 
+bool game_file_own(const char* path, std::vector<std::uint8_t>& out) {
+    void* archive = g_hooked ? *reinterpret_cast<void**>(kArchive) : nullptr;
+    files::TocEntry* e = archive ? g_lookup(archive, path) : nullptr;
+    if (!e || e->size == 0) return false;
+    std::vector<std::uint8_t> raw(e->size);
+    Reader r{e, 0};
+    std::uint32_t got = 0;
+    g_read(&r, raw.data(), e->size, &got);
+    if (got != e->size) return false;
+    const std::size_t n = std::strlen(path);
+    if (n > 2 && path[n - 2] == '.' && (path[n - 1] == 'z' || path[n - 1] == 'Z')) return files::unpack(raw, out);
+    out = std::move(raw);
+    return true;
+}
 bool game_file(const char* path, std::vector<std::uint8_t>& out) {
     void* archive = g_hooked ? *reinterpret_cast<void**>(kArchive) : nullptr;
     files::TocEntry* e = archive ? hook_lookup(archive, nullptr, path) : nullptr;

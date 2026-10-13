@@ -32,6 +32,9 @@ bool ui_panel_open();                 // the F1 panel is open
 bool ui_key_down(const std::string& name, bool pad);
 bool ui_key_known(const std::string& name, bool pad);
 void ui_notice(const std::string& head, const std::string& text);   // a card over the game for a few seconds
+// A mod's icon for an item (cleria.content.icon): kept by item id, and shown beside the card for a few seconds.
+void ui_item_icon(int item, const std::filesystem::path& file);
+bool ui_show_item_icon(int item);                                   // false: no icon was given for it
 // A mod's images (cleria.hud images, p:image): a .dds file (DXT1 / DXT3 / DXT5 or 32-bit) as a texture of the
 // game's device, made at its first draw. The handle is for ui_image(); 0 = not a readable DDS.
 int ui_load_image(const std::filesystem::path& file);

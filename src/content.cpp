@@ -5,13 +5,15 @@
 //   pickups*.ini   a pickup placed in a room, collected once per save (an item of the game's own: the
 //                  retail pickup draws its icon from the game's table)
 //   rules*.ini     On an event, Do actions
-// text*.ini (a script's strings) is not applied: it needs the script parsed as CleriaCore parses it.
+//   text*.ini      a script's strings, written into the script as the game loads it (files.cpp)
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 
 #include "cleria/content.hpp"
 #include "cleria/mod_events.hpp"
+#include "cleria/vfs.hpp"
 #include "ore.hpp"
 #include "ui.hpp"
 
@@ -95,12 +97,52 @@ void content_start() {
     }
     for (const content::Note& e : g_c.errors) log("[content]   %s: %s", e.mod.c_str(), e.text.c_str());
     for (const content::Note& n : g_c.notes) log("[content]   %s: %s", n.mod.c_str(), n.text.c_str());
-    if (!g_c.text.empty()) log("[content]   text*.ini is not applied on the retail game");
     if (g_c.empty()) return;
     events::bus().subscribe(&on_event);
 }
 
 bool content_on() { return !g_c.empty(); }
+bool content_text_on() { return !g_c.text.empty(); }
+
+// text*.ini on a script: an XSO file is a header (the code's length in words at +0x1c, the string count at +0x20),
+// the code, the strings' offsets and the string pool, which ends the file. The pool is written again with the
+// new strings; nothing else refers to it.
+int content_patch_script(const std::string& name, std::vector<std::uint8_t>& xso) {
+    if (g_c.text.empty() || xso.size() < 0x24 || std::memcmp(xso.data(), "XSR\0", 4) != 0) return 0;
+    std::uint32_t words = 0, count = 0;
+    std::memcpy(&words, xso.data() + 0x1c, 4);
+    std::memcpy(&count, xso.data() + 0x20, 4);
+    const std::size_t table = 0x24 + std::size_t(words) * 4, pool = table + std::size_t(count) * 4;
+    if (count == 0 || count > 4096 || pool > xso.size()) return 0;
+    std::vector<std::string> strings;
+    for (std::uint32_t i = 0; i < count; ++i) {
+        std::uint32_t off = 0;
+        std::memcpy(&off, xso.data() + table + std::size_t(i) * 4, 4);
+        std::size_t at = pool + off, n = 0;
+        while (at + n < xso.size() && xso[at + n] != 0) ++n;
+        strings.emplace_back(at < xso.size() ? reinterpret_cast<const char*>(xso.data() + at) : "", at < xso.size() ? n : 0);
+    }
+    int changed = 0;
+    auto apply = [&](const content::TextDef& td) {                                // as content::patch_script
+        for (const auto& [i, t] : td.by_index)
+            if (i >= 0 && i < int(count) && strings[std::size_t(i)] != t) { strings[std::size_t(i)] = t; ++changed; }
+        for (std::string& t : strings)
+            if (const auto it = td.by_text.find(t); it != td.by_text.end() && it->second != t) { t = it->second; ++changed; }
+    };
+    if (const auto all = g_c.text.find("*"); all != g_c.text.end()) apply(all->second);
+    if (const auto it = g_c.text.find(vfs::key(name)); it != g_c.text.end()) apply(it->second);
+    if (!changed) return 0;
+    std::vector<std::uint8_t> out(xso.begin(), xso.begin() + std::ptrdiff_t(pool));
+    for (std::uint32_t i = 0; i < count; ++i) {
+        const std::uint32_t off = std::uint32_t(out.size() - pool);
+        std::memcpy(out.data() + table + std::size_t(i) * 4, &off, 4);
+        out.insert(out.end(), strings[i].begin(), strings[i].end());
+        out.push_back(0);
+    }
+    while (out.size() % 4) out.push_back(0);
+    xso = std::move(out);
+    return changed;
+}
 
 // As CleriaCore's content_give: a retail item's count cell (gold into SP); a new item by its Kind, kept in
 // the sidecar.
@@ -125,6 +167,9 @@ bool content_give(int id, int count, const std::string& source, const std::strin
         }
     }
     log("[content] item 0x%X x%d from %s", id, count, source.c_str());
+    // A mod's own item has no icon in the game's table, so none rises from a chest: its icon, when the mod gave
+    // one, is shown with a card of its name.
+    if (ui_show_item_icon(id)) ui_notice("Obtained", content_item_name(id));
     obtained(id, count, source, script);
     return true;
 }
