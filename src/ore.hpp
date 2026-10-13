@@ -113,6 +113,7 @@ cleria::script::WorldDecision world_filter(const cleria::script::WorldQuery& q);
 void emit_named(const cleria::events::Event& e);     // an event of API 7, to the mods
 int exit_filter(int scene);                          // host.cpp: the mods' "exit" filter on a room change; 0 = cancelled
 void world_tick();                                   // host.cpp: the monsters built since the last step ("spawn", enemy_spawned)
+int puppet_id(const void* actor);                    // host.cpp: the id of a mod's puppet, 0 for any other actor
 bool actor_held(const void* actor);                  // host.cpp: a mod holds this actor's handler (world.form ai = false, world.apply)
 // For the overlay (ui.cpp, the game thread):
 std::vector<cleria::mods::Mod>& mod_list();                           // every mod found, in load order

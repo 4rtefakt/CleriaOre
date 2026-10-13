@@ -1,4 +1,5 @@
 #include "ore.hpp"
+#include "ui.hpp"
 
 #include <windows.h>
 
@@ -535,6 +536,9 @@ GrantDecision on_grant(GrantQuery q) {
     if (d.action == GrantDecision::Action::Pass && content_on()) d = content_grant(q, room);   // chests.ini
     // The retail game draws an item's icon from its own table: a mod's item (0x100..) has none there.
     if (d.action == GrantDecision::Action::Replace && q.kind != GrantQuery::Kind::Store && (d.index < 0 || d.index >= content::kRetailItems)) {
+        // ... so nothing rises from the chest; the mod's own picture, when it gave one (an item's Icon=, or
+        // cleria.ui.icon for an id of 0x200..), is shown beside the card instead.
+        ui_show_item_icon(d.index);
         if (q.kind == GrantQuery::Kind::Icon) d.action = GrantDecision::Action::Suppress;
         else d.index = content::kNoIcon;
     }
@@ -572,6 +576,20 @@ int on_damage(bool dealt, int value, const void* victim, const void* attacker, c
     using Kind = script::CombatQuery::Kind;
     if (!victim) return value;
     const int vcast = field<std::int32_t>(victim, kActCast);
+    // A monster's hit found a mod's puppet (one the monsters may chase): puppet_struck, and no damage. A puppet is
+    // built as the player's cast, so the game would otherwise take it for the player.
+    if (!dealt) {
+        if (const int pid = puppet_id(victim)) {
+            events::Event e = events::Event::named("puppet_struck");
+            e.with("puppet", pid).with("damage", value).with("atk", source ? double(field<float>(source, kActAtk)) : 0.0)
+                .with("power", source ? double(field<float>(source, 0xfc)) : 0.0);
+            const bool actor = attacker && field<std::uint32_t>(attacker, 0) == 0x69ba3c;
+            e.with("actor", actor ? double(field<std::int32_t>(attacker, 0x14)) : 0.0).with("cast", actor ? double(field<std::int32_t>(attacker, kActCast)) : -1.0)
+                .with("level", actor ? double(field<std::int32_t>(attacker, kActLevel)) : 0.0);
+            emit(e, host().room());
+            return 0;
+        }
+    }
     if (dealt ? (!attacker || field<std::int32_t>(attacker, kActCast) != kCastPlayer) : vcast != kCastPlayer) return value;
     // The mods' pooled damage: past the filters, spent at once, on the actor the boss gauge shows.
     auto pooled = [&](int d) {

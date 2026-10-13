@@ -282,3 +282,18 @@ The notes themselves are gathered in the `yso` repository.
   served. Driven with the Chest Swap sample: S_1009's statue script, four strings, one replaced. The game
   asks for the statue scripts of many rooms as it starts, so a text change is in place before the room is
   entered. Not seen on screen: the line is the one after a statue's cleanse.
+
+## A chest's redirect, seen
+
+- `script.run("S_BOX01")` in S_1001, with the chest's flag put back to 0, runs the chest as opening it does. With
+  the Chest Swap sample the whole chain was seen for the first time on the retail game: the "Acquired" box
+  naming the mod's item, the rule's card ("The Lantern of Solace glows softly."), no icon rising from the
+  chest, and the mod's own picture (the item's `Icon=`, a DDS among the mod's files) in a frame beside the
+  card. A mod's picture for an icon id of 0x200.. (`cleria.ui.icon`) is shown the same way.
+
+## Monsters and a puppet: tried, not kept
+
+- ENEMYAI.md gives a monster a target override at +0x888 (the player when 0). Writing a puppet's actor there
+  for every monster of S_1001 (casts 14 and 19), with the puppet a step from one of them and the player far
+  off, moved nothing in eight seconds: these brains find their prey by the player's own pointer and distance.
+  **Open:** which casts read +0x888. A puppet stays out of the monsters' reach.

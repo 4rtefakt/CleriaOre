@@ -97,6 +97,13 @@ void content_start() {
     }
     for (const content::Note& e : g_c.errors) log("[content]   %s: %s", e.mod.c_str(), e.text.c_str());
     for (const content::Note& n : g_c.notes) log("[content]   %s: %s", n.mod.c_str(), n.text.c_str());
+    // A new item's Icon= names a picture among the mods' files (files/MENU/ICON/<name>.DDS): kept by the item's id,
+    // for when a chest gives it (ore.cpp on_grant).
+    for (const auto& [id, d] : g_c.items) {
+        if (id < content::kNewItemFirst || !d.icon) continue;
+        const auto& t = vfs::table();
+        if (const auto it = t.find(vfs::key("menu/icon/" + *d.icon + ".dds")); it != t.end()) ui_item_icon(id, it->second.file);
+    }
     if (g_c.empty()) return;
     events::bus().subscribe(&on_event);
 }
@@ -167,9 +174,6 @@ bool content_give(int id, int count, const std::string& source, const std::strin
         }
     }
     log("[content] item 0x%X x%d from %s", id, count, source.c_str());
-    // A mod's own item has no icon in the game's table, so none rises from a chest: its icon, when the mod gave
-    // one, is shown with a card of its name.
-    if (ui_show_item_icon(id)) ui_notice("Obtained", content_item_name(id));
     obtained(id, count, source, script);
     return true;
 }
@@ -183,7 +187,17 @@ std::string content_item_name(int id) {
 // does not (a new item) is granted here.
 GrantDecision content_grant(const GrantQuery& q, const std::string& room) {
     std::vector<content::Obtained> got;
-    const GrantDecision d = content::decide(g_c, q, room, nullptr, &got);
+    GrantDecision d = content::decide(g_c, q, room, nullptr, &got);
+    // decide() has no item table here and names the item by its number: the box gets the name.
+    if (d.action == GrantDecision::Action::Replace && !d.text.empty()) {
+        std::string name = content_item_name(d.index);
+        if (name.empty()) name = host().item_name(d.index);
+        char hex[16];
+        for (const char* f : {"item 0x%X", "item 0x%02X", "0x%X", "0x%02X"}) {
+            std::snprintf(hex, sizeof hex, f, d.index);
+            if (const std::size_t k = d.text.find(hex); k != std::string::npos && !name.empty()) { d.text.replace(k, std::strlen(hex), name); break; }
+        }
+    }
     for (const content::Obtained& o : got) {
         if (o.apply) content_give(o.item, o.count, "chest", q.script);
         else obtained(o.item, o.count, "chest", q.script);

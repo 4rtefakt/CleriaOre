@@ -1161,7 +1161,14 @@ int exit_filter(int scene) {
     return rec ? int(*reinterpret_cast<const std::uint16_t*>(rec)) : scene;
 }
 void world_tick() {
-    if (hooked() && *reinterpret_cast<char**>(0x74c09c)) RetailHost::new_monsters();
+    if (!hooked() || !*reinterpret_cast<char**>(0x74c09c)) return;
+    RetailHost::new_monsters();
+}
+int puppet_id(const void* actor) {
+    const auto& s = RetailHost::puppet_set();
+    if (s.empty() || !actor) return 0;
+    RetailHost::held_room();
+    return s.count(actor) ? *reinterpret_cast<const std::int32_t*>(static_cast<const char*>(actor) + 0x14) : 0;
 }
 bool actor_held(const void* actor) {
     const auto& s = RetailHost::held_set();

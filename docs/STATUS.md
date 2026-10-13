@@ -74,6 +74,7 @@ hooked and the log says so.
 - API 7's events from the game: `enemy_hit`, `player_hit`, `level_up`, `floor_changed`, `retry`, `enemy_spawned`,
   `player_bullet`, `player_effect`. Monster variants (`content.define_monster`, `morph`): the numbers, the scale,
   `on_hit`, `on_death` and the phases. `hud.show` for the whole HUD.
+- A mod's own picture beside the card when a chest gives its item (`Icon=` in `items.ini`, or `cleria.ui.icon`).
 - `game.new_game` (from the title). The glow: `player.set_look`'s `glow`, `world.form`'s `tint`, a puppet's `glow`.
   A kill by `combat.damage` gives its EXP and SP and raises `enemy_killed`.
 - Bullets: `player_bullet` for each of the player's, and `world.show_bullet`, the same bullet again for show.
@@ -84,7 +85,7 @@ hooked and the log says so.
 What does not exist yet, so a script's call answers its default: a variant's name and own sprite, a puppet's
 `aura` (an effect that follows it), `hittable` and `target` (the game's monsters chase and hit only its own
 player), the boss gauge or the messages hidden alone, a music file of the mod's own, the shop filter's prices
-and rows, item icons, `unlock_character` (it would write into the player's clear records), the save profiles,
+and rows, `unlock_character` (it would write into the player's clear records), the save profiles,
 and the load order in the game's panel.
 
 The scripted mods of `cleriacore-mods` (17 with the probes) all start and run a fight and room changes without
