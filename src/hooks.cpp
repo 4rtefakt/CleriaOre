@@ -367,6 +367,37 @@ __declspec(naked) void hook_fx() {
         jmp  dword ptr [g_fx_back]
     }
 }
+// Character Select locks Toal on a new game until Yunica (the clear byte 0x74ab7b) or Hugo (0x74ab7a) has cleared
+// the game: its setup counts two bars instead of three (0x5c3834: cl, dl the two bytes) and its colours grey the
+// third (0x5c33ff: bl, bh). cleria.game.unlock_character(3) makes both read Yunica's byte as set, for this run of
+// the game; the clear data itself is not written. Not in Time Attack (0x74e25e = 1), whose locks are each
+// character's own.
+//   0x5c383a  xor eax, eax ; mov dl, [0x74ab7a]        (cl is loaded)
+//   0x5c340b  mov eax, [0x743af0]                      (bl, bh are loaded)
+constexpr std::uintptr_t kToalA = 0x5c383a, kToalB = 0x5c340b;
+constexpr std::uint8_t kToalABytes[] = {0x33, 0xc0, 0x8a, 0x15, 0x7a, 0xab, 0x74, 0x00, 0x89, 0x45, 0xe0};
+constexpr std::uint8_t kToalBBytes[] = {0xa1, 0xf0, 0x3a, 0x74, 0x00, 0x57, 0x80, 0x3d, 0x5e, 0xe2, 0x74, 0x00, 0x01};
+void* g_toal_a = nullptr;
+void* g_toal_b = nullptr;
+std::uint8_t g_open_toal = 0;
+__declspec(naked) void hook_toal_a() {
+    __asm {
+        cmp  byte ptr ds:[0x74e25e], 1
+        je   as_it_is
+        or   cl, byte ptr [g_open_toal]
+    as_it_is:
+        jmp  dword ptr [g_toal_a]
+    }
+}
+__declspec(naked) void hook_toal_b() {
+    __asm {
+        cmp  byte ptr ds:[0x74e25e], 1
+        je   as_it_was
+        or   bl, byte ptr [g_open_toal]
+    as_it_was:
+        jmp  dword ptr [g_toal_b]
+    }
+}
 // FUN_004295d0, the HUD's draw: the status widgets (each drawn while its owner, +4, or its fading flag, +0x48, is
 // set: 0x6d5ef0 the gauges and the portrait, 0x6d5f3c the skill's), then the boss gauge by FUN_0043a770 (widget
 // 0x6d5fd4 in ecx). A part a mod hides is not drawn: the status widgets read as absent for the call, the gauge's
@@ -846,7 +877,8 @@ const Site kSites[] = {
     SITE(kOwned, kOwnedBytes, &hook_owned, &g_owned),     SITE(kHudDraw, kHudDrawBytes, &hook_hud_draw, &g_hud_draw),
     SITE(kBossDraw, kBossDrawBytes, &hook_boss_draw, &g_boss_draw), SITE(kScript, kScriptBytes, &hook_script, &g_script),
     SITE(kSkill, kSkillBytes, &hook_skill, &g_skill),     SITE(kJump, kJumpBytes, &hook_jump, &g_jump),
-    SITE(kFx, kFxBytes, &hook_fx, &g_fx),
+    SITE(kFx, kFxBytes, &hook_fx, &g_fx),                 SITE(kToalA, kToalABytes, &hook_toal_a, &g_toal_a),
+    SITE(kToalB, kToalBBytes, &hook_toal_b, &g_toal_b),
     SITE(kSpawn, kSpawnBytes, &hook_spawn, &g_spawn),       SITE(kTouch, kTouchBytes, &hook_touch, &g_touch),
 };
 #undef SITE
@@ -1033,6 +1065,8 @@ bool steam_delete(const char* name) {   // the drive's, for tests: a file of Ste
     void** vt = *reinterpret_cast<void***>(rs);
     return reinterpret_cast<bool(__thiscall*)(void*, const char*)>(g_rs[2] ? g_rs[2] : vt[6])(rs, name);
 }
+
+void open_toal() { g_open_toal = 1; }
 
 bool hooked() { return g_hooked; }
 bool spawn_pickup(int item, const float* pos, bool resting) {

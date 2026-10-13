@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <fstream>
 #include <cstring>
 #include <map>
 #include <set>
@@ -1230,6 +1231,25 @@ struct RetailHost : script::Host {
         return true;
     }
     std::string save_profile() override { return ore::save_profile(); }
+    void unlock_character(int c) override { if (c == 3) open_toal(); }   // only Toal is ever locked on a new game
+    // The game's text language: the exe has no setting of its own, Steam installs the data of the language chosen
+    // in the game's properties and notes it in the library's appmanifest_207350.acf. "en" when that cannot be read.
+    std::string locale() override {
+        static const std::string found = [] {
+            static const std::pair<const char*, const char*> kNames[] = {{"english", "en"}, {"french", "fr"}, {"japanese", "ja"}, {"german", "de"},
+                {"spanish", "es"}, {"italian", "it"}, {"russian", "ru"}, {"koreana", "ko"}, {"schinese", "zh"}, {"tchinese", "zh-TW"}};
+            std::ifstream f(dir().parent_path().parent_path().parent_path() / "appmanifest_207350.acf");
+            std::string line;
+            while (std::getline(f, line)) {
+                const std::size_t k = line.find("\"language\"");
+                if (k == std::string::npos) continue;
+                for (const auto& [name, code] : kNames)
+                    if (line.find(std::string("\"") + name + "\"", k + 10) != std::string::npos) return std::string(code);
+            }
+            return std::string("en");
+        }();
+        return found;
+    }
 };
 
 }  // namespace

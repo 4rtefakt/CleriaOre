@@ -92,6 +92,7 @@ const std::string& save_profile();     // the save profile, "" = the game's own 
 bool set_save_profile(const std::string& name);   // false: not a usable name
 bool save_name(const char* base);      // hooks.cpp: a save file's name (yso_NN.bin, yso_NN.nacci)
 bool profile_storage();                // hooks.cpp: Steam's storage follows the save profile; false: there is none (yet)
+void open_toal();                      // hooks.cpp: Character Select offers Toal for the rest of this run
 bool steam_delete(const char* name);   // hooks.cpp: for the drive's tests
 bool session_pending();                // a new game / a load whose event was not delivered yet
 int room_ticks();                      // the steps since the room was entered
