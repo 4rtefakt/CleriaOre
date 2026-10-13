@@ -1,0 +1,37 @@
+// CleriaOre.exe's resources: its icon and version, and what it installs (the loader and the panel's
+// fonts), so the one file is all a player downloads. CMake copies this file beside the built dinput8.dll
+// and compiles it there (CMakeLists.txt, the `payload` folder).
+#include <winver.h>
+
+1 ICON "cleriaore.ico"
+
+LOADER RCDATA "dinput8.dll"
+FONT1 RCDATA "FiraSans-Regular.ttf"
+FONT2 RCDATA "FiraSans-Medium.ttf"
+FONT3 RCDATA "FiraSans-SemiBold.ttf"
+FONT4 RCDATA "FiraSansCondensed-SemiBold.ttf"
+FONT5 RCDATA "FiraSansCondensed-Medium.ttf"
+FONT6 RCDATA "OFL.txt"
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION 1, 0, 0, 0
+PRODUCTVERSION 1, 0, 0, 0
+FILEOS VOS_NT_WINDOWS32
+FILETYPE VFT_APP
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904b0"
+        BEGIN
+            VALUE "FileDescription", "CleriaOre, a mod loader for Ys Origin"
+            VALUE "ProductName", "CleriaOre"
+            VALUE "FileVersion", "1.0.0"
+            VALUE "ProductVersion", "1.0.0"
+            VALUE "OriginalFilename", "CleriaOre.exe"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END

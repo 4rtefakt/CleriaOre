@@ -163,7 +163,7 @@ void wait_started() { WaitForSingleObject(g_started, INFINITE); }
 void start(bool hooked) {
     // The game's first file lookup waits for this function (hooks.cpp): it must set g_started on every path.
     struct Done { ~Done() { SetEvent(g_started); } } done;
-    log("%s", kLoaderMark);
+    log("%s %s", kLoaderMark, kVersion);
     log(hooked ? "[hooks] installed" : "[hooks] none: this process is not the yso_win.exe build CleriaOre knows");
     Ini& ini = g_ini;
     ini.load(dir() / "cleriaore.ini");

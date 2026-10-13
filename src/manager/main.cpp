@@ -1,14 +1,16 @@
-// CleriaOre.exe: the mods and the loader, managed outside the game.
+// CleriaOre.exe: the installer, and the mods and the loader managed outside the game.
 //
-// It ships in one folder with the loader (dinput8.dll) and fonts/. It finds the game (its own folder, the
-// folder chosen last time, Steam's libraries), copies the loader into it, and edits what the loader reads at
-// the game's start: <game>/cleriaore/mods/ and cleriaore.ini [cleria.mods] (the same keys the F1 panel in
+// It is the one file a player downloads: the loader (dinput8.dll) and the panel's fonts are inside it
+// (res/cleriaore.rc). It finds the game (its own folder, the folder chosen last time, Steam's libraries),
+// puts the loader into it with a copy of itself (<game>/cleriaore/CleriaOre.exe, and a Start menu shortcut
+// to it), and edits what the loader reads at the game's start: <game>/cleriaore/mods/ and cleriaore.ini [cleria.mods] (the same keys the F1 panel in
 // the game writes). The window is the panel of the game's F1 (kit.inl): a Mods tab modelled on CleriaCore's
 // own (apps/cleria-view/view_mods.inl) and a Game tab.
 #include <windows.h>
 #include <commdlg.h>
 #include <d3d9.h>
 #include <shellapi.h>
+#include <shlobj.h>
 #include <tlhelp32.h>
 
 #include <cmath>
@@ -40,8 +42,57 @@ constexpr char kBackup[] = "dinput8.dll.before-cleriaore";   // another dinput8.
 
 enum class Loader { None, Ours, OtherVersion, Foreign };
 
+// What the exe carries (res/cleriaore.rc).
+std::string resource(const wchar_t* name) {
+    const HRSRC r = FindResourceW(nullptr, name, MAKEINTRESOURCEW(10));   // RT_RCDATA
+    const HGLOBAL h = r ? LoadResource(nullptr, r) : nullptr;
+    return h ? std::string(static_cast<const char*>(LockResource(h)), SizeofResource(nullptr, r)) : std::string();
+}
+struct Carried { const wchar_t* name; const char* file; };
+constexpr Carried kFonts[] = {{L"FONT1", "FiraSans-Regular.ttf"}, {L"FONT2", "FiraSans-Medium.ttf"}, {L"FONT3", "FiraSans-SemiBold.ttf"},
+                              {L"FONT4", "FiraSansCondensed-SemiBold.ttf"}, {L"FONT5", "FiraSansCondensed-Medium.ttf"}, {L"FONT6", "OFL.txt"}};
+
+bool write_file(const fs::path& p, const std::string& bytes) {
+    std::error_code ec;
+    fs::create_directories(p.parent_path(), ec);
+    std::ofstream f(p, std::ios::binary);
+    f.write(bytes.data(), std::streamsize(bytes.size()));
+    return bool(f);
+}
+bool write_fonts(const fs::path& dir) {
+    bool ok = true;
+    for (const Carried& c : kFonts) ok = write_file(dir / c.file, resource(c.name)) && ok;
+    return ok;
+}
+
+fs::path known_folder(REFKNOWNFOLDERID id) {
+    PWSTR p = nullptr;
+    fs::path out;
+    if (SHGetKnownFolderPath(id, 0, nullptr, &p) == S_OK) out = p;
+    CoTaskMemFree(p);
+    return out;
+}
+fs::path own_ini() { return known_folder(FOLDERID_RoamingAppData) / "CleriaOre" / "manager.ini"; }   // this exe's own note
+fs::path shortcut() { return known_folder(FOLDERID_Programs) / "CleriaOre.lnk"; }                     // the Start menu's
+
+bool make_shortcut(const fs::path& lnk, const fs::path& target) {
+    IShellLinkW* link = nullptr;
+    if (CoCreateInstance(CLSID_ShellLink, nullptr, CLSCTX_INPROC_SERVER, IID_IShellLinkW, reinterpret_cast<void**>(&link)) != S_OK) return false;
+    link->SetPath(target.wstring().c_str());
+    link->SetWorkingDirectory(target.parent_path().wstring().c_str());
+    link->SetDescription(L"Mods for Ys Origin");
+    IPersistFile* file = nullptr;
+    bool ok = false;
+    if (link->QueryInterface(IID_IPersistFile, reinterpret_cast<void**>(&file)) == S_OK) {
+        ok = file->Save(lnk.wstring().c_str(), TRUE) == S_OK;
+        file->Release();
+    }
+    link->Release();
+    return ok;
+}
+
 struct App {
-    fs::path self;                    // this exe's folder: the dinput8.dll and fonts/ to install are in it
+    fs::path self;                    // this exe
     fs::path game;                    // the game folder, "" = not found
     bool known_build = false;         // its yso_win.exe is the build the loader hooks
     Loader loader = Loader::None;
@@ -124,7 +175,7 @@ void look_at_game() {
         g.known_build = stamp == kLinkTime;
     }
     if (!read_file(g.game / "dinput8.dll", there)) return;
-    read_file(g.self / "dinput8.dll", ours);
+    ours = resource(L"LOADER");
     g.loader = there == ours ? Loader::Ours : there.find(ore::kLoaderMark) != std::string::npos ? Loader::OtherVersion : Loader::Foreign;
 }
 
@@ -147,9 +198,9 @@ void set_game(const fs::path& dir, bool remember) {
     g.sub.clear();
     if (remember) {
         Ini own;
-        own.load(g.self / "CleriaOre.ini");
+        own.load(own_ini());
         own.set_string("manager", "Game", dir.string());
-        own.save(g.self / "CleriaOre.ini");
+        own.save(own_ini());
     }
     look_at_game();
     reload_mods();
@@ -157,9 +208,10 @@ void set_game(const fs::path& dir, bool remember) {
 
 void find_game() {
     Ini own;
-    own.load(g.self / "CleriaOre.ini");
+    own.load(own_ini());
     const fs::path saved = own.get_string("manager", "Game").value_or("");
-    set_game(is_game(g.self) ? g.self : is_game(saved) ? saved : steam_game(), false);
+    const fs::path here = g.self.parent_path();   // installed, it is <game>/cleriaore/CleriaOre.exe
+    set_game(is_game(here) ? here : is_game(here.parent_path()) ? here.parent_path() : is_game(saved) ? saved : steam_game(), false);
 }
 
 // The choices -> cleriaore.ini, as the loader's F1 panel writes them (ore.cpp save_prefs).
@@ -226,21 +278,23 @@ void remove_mod(const mods::Mod& m) {
     say(name + " was moved to the Recycle Bin");
 }
 
+// The loader and the fonts into the game folder, this exe beside the mods, a shortcut to it in the Start menu.
 void install_loader() {
-    const fs::path from = g.self / "dinput8.dll", to = g.game / "dinput8.dll";
+    const fs::path to = g.game / "dinput8.dll", exe = ore_dir() / "CleriaOre.exe";
     std::error_code ec;
-    if (!fs::exists(from, ec)) return say("No dinput8.dll beside CleriaOre.exe to install", true);
     if (g.loader == Loader::Foreign) {   // somebody else's: kept beside it, put back by Remove
         if (fs::exists(g.game / kBackup, ec)) return say(std::string("Another dinput8.dll is there, and ") + kBackup + " already exists: move one of them away", true);
         fs::rename(to, g.game / kBackup, ec);
         if (ec) return say("The other dinput8.dll could not be moved aside: " + ec.message(), true);
     }
-    fs::copy_file(from, to, fs::copy_options::overwrite_existing, ec);
-    if (ec) return say("dinput8.dll could not be copied" + std::string(g.running ? " (close the game first)" : ": " + ec.message()), true);
+    if (!write_file(to, resource(L"LOADER")))
+        return say("dinput8.dll could not be written" + std::string(g.running ? " (close the game first)" : " into the game folder"), true);
     fs::create_directories(mods_dir(), ec);
-    fs::copy(g.self / "fonts", ore_dir() / "fonts", fs::copy_options::recursive | fs::copy_options::overwrite_existing, ec);
+    write_fonts(ore_dir() / "fonts");
+    if (!fs::equivalent(g.self, exe, ec)) fs::copy_file(g.self, exe, fs::copy_options::overwrite_existing, ec);
+    const bool linked = fs::exists(exe, ec) && make_shortcut(shortcut(), exe);
     look_at_game();
-    say("The loader is installed");
+    say(linked ? "Installed. CleriaOre is in the Start menu; start the game and press F1" : "The loader is installed. Start the game and press F1");
 }
 
 void remove_loader() {
@@ -249,6 +303,7 @@ void remove_loader() {
     if (ec) return say("dinput8.dll could not be removed" + std::string(g.running ? " (close the game first)" : ": " + ec.message()), true);
     const bool back = fs::exists(g.game / kBackup, ec);
     if (back) fs::rename(g.game / kBackup, g.game / "dinput8.dll", ec);
+    fs::remove(shortcut(), ec);
     look_at_game();
     say(back ? "The loader is removed; the dinput8.dll that was there before is back" : "The loader is removed. The mods and their settings stay in cleriaore/");
 }
@@ -469,16 +524,18 @@ void game_page(ui::List& L) {
     ui::section(L, "Loader");
     const char* state = g.loader == Loader::Ours ? "Installed" : g.loader == Loader::OtherVersion ? "Another version is installed"
                       : g.loader == Loader::Foreign ? "Another dinput8.dll is there" : "Not installed";
-    ui::info(L, "CleriaOre", state, g.loader == Loader::Ours ? ui::kGood : ui::kWarn,
+    const std::string shown = g.loader == Loader::Ours ? std::string("Installed  \xE2\x80\xA2  ") + ore::kVersion : std::string(state);
+    ui::info(L, "CleriaOre", shown.c_str(), g.loader == Loader::Ours ? ui::kGood : ui::kWarn,
              "The loader is one file in the game folder, dinput8.dll: the game loads it at its start, and it loads the mods.");
     if (ui::button(L, g.loader == Loader::OtherVersion ? "Update the loader" : "Install the loader",
                    g.loader == Loader::Foreign ? "Another mod's dinput8.dll is in the game folder. It is kept beside it "
                                                  "(dinput8.dll.before-cleriaore) and put back when you remove the loader."
-                                               : "Copies dinput8.dll and the panel's fonts into the game folder.",
+                                               : "Puts the loader (dinput8.dll) into the game folder, with this program beside the mods and a shortcut "
+                                                 "to it in the Start menu.",
                    g.loader != Loader::Ours))
         install_loader();
-    if (ui::button(L, "Remove the loader", "Takes dinput8.dll out of the game folder: the game runs as shipped. The mods and "
-                                            "their settings stay in cleriaore/.",
+    if (ui::button(L, "Remove the loader", "Takes dinput8.dll out of the game folder and the shortcut out of the Start menu: the game "
+                                            "runs as shipped. The mods and their settings stay in cleriaore/.",
                    g.loader == Loader::Ours || g.loader == Loader::OtherVersion))
         remove_loader();
     ui::section(L, "Play");
@@ -550,7 +607,8 @@ bool frame() {
 int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int show) {
     wchar_t exe[MAX_PATH];
     GetModuleFileNameW(nullptr, exe, MAX_PATH);
-    g.self = fs::path(exe).parent_path();
+    g.self = exe;
+    CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);   // the shortcut
     find_game();
     int argc = 0;
     if (wchar_t** argv = CommandLineToArgvW(GetCommandLineW(), &argc))   // CleriaOre.exe <a mod file>: install it
@@ -561,6 +619,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int show) {
     wc.lpfnWndProc = wndproc;
     wc.hInstance = inst;
     wc.hCursor = LoadCursorW(nullptr, MAKEINTRESOURCEW(32512));   // IDC_ARROW
+    wc.hIcon = wc.hIconSm = LoadIconW(inst, MAKEINTRESOURCEW(1));
     wc.lpszClassName = L"CleriaOre";
     RegisterClassExW(&wc);
     RECT r{0, 0, 1175, 825};
@@ -580,7 +639,13 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int show) {
     ImGui::CreateContext();
     ImGui::GetIO().IniFilename = nullptr;
     ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
-    ui::load_fonts(g.self / "fonts");
+    {   // the fonts it carries: laid in the temp folder for the kit to load
+        wchar_t tmp[MAX_PATH];
+        GetTempPathW(MAX_PATH, tmp);
+        const fs::path fonts = fs::path(tmp) / "CleriaOre" / "fonts";
+        write_fonts(fonts);
+        ui::load_fonts(fonts);
+    }
     ImGui_ImplWin32_Init(wnd);
     ImGui_ImplDX9_Init(g_dev);
     ui::Page& mods = g_panel.add("Mods", &mods_page);

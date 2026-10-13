@@ -4,12 +4,14 @@
 #   git submodule update --init
 #   python external/CleriaCore/tools/fetch_deps.py --only lua,miniz,fonts
 #   cmake -S . -B build -G "Visual Studio 17 2022" -A Win32
-#   cmake --build build --config Release        -> build/Release/dinput8.dll
+#   cmake --build build --config Release        -> build/Release/CleriaOre.exe (the loader is inside it)
 #   ctest --test-dir build -C Release
 cmake_minimum_required(VERSION 3.24)
 project(CleriaOre C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
+# The C runtime is linked in: a player needs no Visual C++ redistributable.
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 if(NOT WIN32 OR NOT CMAKE_SIZEOF_VOID_P EQUAL 4)
@@ -62,15 +64,19 @@ target_link_libraries(dinput8 PRIVATE cleria-modkit miniz minhook imgui d3d9)
 target_compile_definitions(dinput8 PRIVATE NOMINMAX)   # CleriaCore's sources use std::min / std::max
 set_target_properties(dinput8 PROPERTIES PREFIX "" OUTPUT_NAME "dinput8")
 
-# CleriaOre.exe: the mods and the loader managed outside the game (src/manager). It installs the dinput8.dll
-# and the fonts/ beside it, so the fonts are laid next to the build's output.
-add_executable(CleriaOre WIN32 src/manager/main.cpp)
-target_include_directories(CleriaOre PRIVATE src)
-target_link_libraries(CleriaOre PRIVATE cleria-modkit imgui d3d9 comdlg32 shell32 advapi32)
+# CleriaOre.exe: the mods and the loader managed outside the game (src/manager), and the installer: the one
+# file a player downloads. What it installs is inside it as resources (res/cleriaore.rc): the built
+# dinput8.dll and the panel's fonts. The .rc is compiled in the `payload` folder, beside a copy of the DLL,
+# and again whenever the DLL changes.
+set(PAYLOAD "${CMAKE_BINARY_DIR}/payload")
+add_custom_command(OUTPUT "${PAYLOAD}/cleriaore.rc" "${PAYLOAD}/dinput8.dll"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:dinput8>" "${PAYLOAD}/dinput8.dll"
+  COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_SOURCE_DIR}/res/cleriaore.rc" "${PAYLOAD}/cleriaore.rc"
+  DEPENDS dinput8 "$<TARGET_FILE:dinput8>" res/cleriaore.rc)
+add_executable(CleriaOre WIN32 src/manager/main.cpp "${PAYLOAD}/cleriaore.rc")
+target_include_directories(CleriaOre PRIVATE src res "${PAYLOAD}" external/CleriaCore/third_party/fonts)   # the .rc's files too
+target_link_libraries(CleriaOre PRIVATE cleria-modkit imgui d3d9 comdlg32 shell32 advapi32 ole32 uuid)
 target_compile_definitions(CleriaOre PRIVATE NOMINMAX)
-add_dependencies(CleriaOre dinput8)
-add_custom_command(TARGET CleriaOre POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_directory
-  "${CMAKE_SOURCE_DIR}/external/CleriaCore/third_party/fonts" "$<TARGET_FILE_DIR:CleriaOre>/fonts")
 
 # ore-loadtest: loads the built dinput8.dll as the game would, checks that DirectInput8Create still
 # reaches the system DLL and that a sample Lua mod of CleriaCore starts. No game needed.

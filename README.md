@@ -1,86 +1,72 @@
 # CleriaOre
 
-A mod loader for the retail **Ys Origin** (Steam, `yso_win.exe`). It hosts the mod layer of
-[CleriaCore](https://github.com/4rtefakt/YsOrigin-CleriaCore) inside the game, so that one mod package
-(`mod.ini`, `files/`, `content/`, Lua on the `cleria.*` API, `.cleriamod`) runs on both: CleriaCore, the
-engine reimplementation, and the retail game through CleriaOre.
+**A mod loader for Ys Origin on Steam.** Install it once, then turn mods on and off from a small
+program outside the game or from a panel inside it.
 
-How to write a mod: CleriaCore's `samples/mods/README.md`.
+![The CleriaOre manager, listing the installed mods](docs/manager-mods.png)
 
-## Status
+CleriaOre is a fan project. It is not made, endorsed or supported by Nihon Falcom or XSEED, and it
+contains none of the game's files: you need your own copy of Ys Origin.
 
-A scaffold. What works:
+## Install
 
-- `dinput8.dll`, a 32-bit proxy the game loads from its own folder; every export is forwarded to the
-  system DLL.
-- CleriaCore's mod layer built into it (the `cleria-modkit` library, shared source, not a copy): mods are
-  discovered, checked and ordered, and their Lua scripts start in the sandbox.
-- File overrides: a mod's `files/` folder replaces the game's packed files. The archive reader's lookup
-  and read (`FUN_005defa0`, `FUN_005df220`) are hooked; a file the game holds packed (`.z`) is packed on
-  demand from the mod's plain file. Not covered: the loose folders (`music`, movies) and file names that
-  are not ASCII.
-- Lua on the game thread: `tick` (the game's 60 Hz step) and `frame`, the `room_enter` and `flag_changed`
-  events, and what a script reads of the game: the room and its chests, the flags, the gear upgrades, the
-  character, item names, `frozen()` and the player's numbers (`cleria.player.stats()`, but the luck and
-  the position).
-- What a script changes: the flags, HP, SP, the level, the weapon tier, EXP (`add_exp`, `exp_factor`), a
-  warp to a statue, `cleria.game.save`, and its own files (`cleria.data`, in `cleriaore/modsdata/<id>/`).
-  Each goes through the game's own function where it has one.
-- The events CleriaCore's content layer reports: `chest_opened`, `door_opened`, `boss_defeated`, `death`
-  and `item_used`.
-- The script VM's grants: `cleria.content.add_filter` sees a script's flag stores (ops 0x64 and 0x67, not
-  the rest of the store family), the item icon (0x116) and the "Acquired" box (0xD5), and may pass,
-  suppress or replace them; `cleria.content.give`; `item_obtained`.
-- Sessions: `new_game`, `load` and `save`, and `cleria.save`, a mod's storage kept with the save. It is
-  CleriaCore's sidecar file, `yso_NN.cleria`, but in `cleriaore/saves/`, not beside the game's save (which
-  may be in the Steam Cloud only): it does not follow the save to another machine.
-- The overlay, drawn in the game's own frame in the look of the game's own menus (`src/kit.inl`, a UI kit
-  with the API of CleriaCore's, so a mod's page is drawn by either): the mods' HUD layers, their notices, and the **F1** panel, with the mods On / Off (applied at
-  the next start), each mod's own page and its settings (`cleriaore.ini`, `[cleria.mod.<id>]`). The game
-  is held while the panel is open.
+1. Download **`CleriaOre-Setup-1.0.0.exe`** from the [latest release](../../releases/latest).
+2. Close the game if it is running, then run the file. Windows may warn that it comes from an unknown
+   publisher (it is not signed): choose *More info*, then *Run anyway*.
+3. CleriaOre finds your game through Steam. On the **Game** page, press **Install the loader**.
+4. Press **Start the game**. In the game, **F1** opens the mods panel.
 
-- `CleriaOre.exe`, the manager, for outside the game: it finds the game (Steam's libraries, or you choose
-  it), installs, updates and removes the loader (another mod's `dinput8.dll` is kept aside and put back),
-  and lists the mods: On / Off, the load order, each mod's details, install from a `.cleriamod` or a `.zip`
-  (the file dialog, a drop on the window, or as its argument), remove to the Recycle Bin. It is the same
-  panel as in the game and writes the same `cleriaore.ini`.
+That is all. CleriaOre is now in your Start menu, and the downloaded file can be deleted.
 
-The hooks are for one build only, the Steam `yso_win.exe` linked 2024-01-08: on any other exe nothing is
-hooked and the log says so.
+If your game is not found (it is not in a Steam library, for instance), press **Choose the game...** and
+pick its `yso_win.exe`.
 
-What does not exist yet, so a script's call answers its default: the combat and shop filters and their
-events (`enemy_killed`, `pickup_collected`, `blessing_bought`), `spawn_pickup`, the stat modifiers,
-`unlock_character`, the save profiles, `content/*.ini`, images and icons, and the load order in the panel.
+![The Game page: the game found, the loader installed](docs/manager-game.png)
 
-## Build
+## Using mods
 
-Windows, Visual Studio 2022, CMake 3.24 or newer, Python 3. The build must be 32-bit, as the game is.
+**Add a mod.** On the **Mods** page press **Install a mod file...** and pick the mod's `.cleriamod` or
+`.zip`, or just drop the file on the window. It is checked, copied in and turned on.
 
-```
-git submodule update --init
-python external/CleriaCore/tools/fetch_deps.py --only lua,miniz,fonts
-cmake -S . -B build -G "Visual Studio 17 2022" -A Win32
-cmake --build build --config Release
-ctest --test-dir build -C Release
-```
+**Turn a mod on or off.** Click its **On / Off**. Changes apply the next time the game starts.
 
-The result is in `build/Release/`: `CleriaOre.exe`, the manager, with what it installs beside it,
-`dinput8.dll` and `fonts/`. Those three are what a release holds.
+**Change the order.** The small arrows move a mod up or down. When two mods change the same thing, the
+one lower in the list wins.
 
-## Layout in the game folder
+**A mod's own settings** are in the game: press **F1**, open **Mods**, then the mod. The game pauses
+while the panel is open.
 
-```
-<Ys Origin>/
-    yso_win.exe
-    dinput8.dll                 CleriaOre
-    cleriaore/
-        cleriaore.ini           [cleria.mods] UseMods / Order / Active (as in CleriaCore's cleria.ini)
-        cleriaore.log           this session's log
-        mods/                   mod folders, .zip and .cleriamod
-        fonts/                  the overlay's fonts: copy external/CleriaCore/third_party/fonts/ here
-        saves/                  yso_NN.cleria, what the mods keep with each save
-        modsdata/<mod id>/      a mod's own files (cleria.data)
-```
+**Remove a mod.** Open the mod's page and press **Remove this mod** twice. It goes to the Recycle Bin.
 
-A mod found in `mods/` starts disabled: turn it on in the manager or in the F1 panel, then restart the
-game.
+**Play without mods.** Turn **Use mods** off; nothing is uninstalled.
+
+## Uninstall
+
+On the **Game** page press **Remove the loader**. The game is back to how Steam installed it. Your mods
+and their settings stay in the game's `cleriaore` folder; delete that folder too if you want nothing
+left.
+
+If another mod's `dinput8.dll` was in the game folder when you installed CleriaOre, it was kept aside
+and is put back now.
+
+## Good to know
+
+- **Which game.** The Steam version of Ys Origin for Windows, in its current build (2024-01-08). On any
+  other version CleriaOre does nothing and the game runs as usual; the Game page tells you which case
+  you are in.
+- **Your saves** are not touched. What a mod keeps with a save goes in a separate file in the
+  `cleriaore` folder, which is not synced by Steam Cloud.
+- **Other DLL mods.** CleriaOre is the game folder's `dinput8.dll`. Another mod that uses the same file
+  name cannot be loaded at the same time.
+- **Steam Deck and Linux** are not tested.
+- **Something went wrong?** The Game page has **Open the log**. It says what the loader and each mod
+  did at the game's last start.
+
+## Making mods
+
+A mod for CleriaOre is a mod for [CleriaCore](https://github.com/4rtefakt/YsOrigin-CleriaCore), the
+fan-made engine for Ys Origin: the same package (`mod.ini`, replacement files, Lua scripts on the
+`cleria.*` API) runs on both. CleriaCore's `samples/mods/README.md` is the guide.
+
+CleriaOre does not back all of that API on the original game yet. What works today, and how to build
+CleriaOre from source, is in [docs/STATUS.md](docs/STATUS.md).
