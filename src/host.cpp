@@ -59,6 +59,7 @@ const auto set_level = reinterpret_cast<void(__fastcall*)(unsigned level)>(0x420
 const auto set_tier = reinterpret_cast<void(__fastcall*)(unsigned slot, int tier)>(0x4201d0); // a weapon slot's tier, stats
 const auto level_ups = reinterpret_cast<void(__cdecl*)()>(0x420c40);                          // the level-ups the EXP total asks for, stats
 const auto write_save = reinterpret_cast<int(__fastcall*)(char* file)>(0x42e9a0);             // hooks.cpp hooks it: the sidecar follows
+const auto request_scene = reinterpret_cast<int(__fastcall*)(int scene, int force)>(0x430ef0);   // the next frame tears the room down and loads this one
 const auto sync_gauges = reinterpret_cast<void(__cdecl*)()>(0x4fa0e0);                        // the HUD's HP and MP gauges take the record's values
 const auto play_sound = reinterpret_cast<void(__fastcall*)(int id, int volume)>(0x43a040);    // a sound of EFFECTDEF, 0x400 = its own volume
 
@@ -159,23 +160,27 @@ struct RetailHost : script::Host {
         return name;
     }
     void emit(const events::Event& e) override { events::bus().emit(e); }
-    // The room's own name, from the game's scene table in memory (SCENELIST.SL: the array at DAT_0074c124, DAT_0074e230
-    // records of 0x1c8, the path "s_10\s_1001\" at +4, the display string at +0xc4), after its ':' as CleriaCore gives it.
-    std::string room_title() override {
-        const std::string room = this->room();
+    // The game's scene table in memory (SCENELIST.SL: the array at DAT_0074c124, DAT_0074e230 records of 0x1c8; the
+    // id at +0, the path "s_10\s_1001\" at +4, the display string at +0xc4): a room's record.
+    static const char* scene_rec(const std::string& room) {
         const char* recs = hooked() ? at<const char*>(0x74c124) : nullptr;
         const int count = recs ? at<std::int32_t>(0x74e230) : 0;
-        if (room.empty() || count <= 0 || count > 4096) return {};
+        if (room.empty() || count <= 0 || count > 4096) return nullptr;
         for (int i = 0; i < count; ++i) {
             const char* rec = recs + std::size_t(i) * 0x1c8;
             std::string path(rec + 4, strnlen(rec + 4, 0xc0));
             for (char& c : path) c = char(std::toupper(static_cast<unsigned char>(c)));
-            if (path.find(room + "\\") == std::string::npos) continue;
-            const std::string display(rec + 0xc4, strnlen(rec + 0xc4, 0x100));
-            const std::size_t k = display.find(':');
-            return k != std::string::npos && k + 2 <= display.size() ? display.substr(k + 2) : display;
+            if (path.find(room + '\\') != std::string::npos) return rec;
         }
-        return {};
+        return nullptr;
+    }
+    // The room's own name, after its ':' as CleriaCore gives it.
+    std::string room_title() override {
+        const char* rec = scene_rec(room());
+        if (!rec) return {};
+        const std::string display(rec + 0xc4, strnlen(rec + 0xc4, 0x100));
+        const std::size_t k = display.find(':');
+        return k != std::string::npos && k + 2 <= display.size() ? display.substr(k + 2) : display;
     }
     bool frozen() override { return hooked() && (at<std::int32_t>(kFix) | at<std::int32_t>(kFix + 4)) != 0; }
     std::int32_t* upgrades() override { return hooked() ? &at<std::int32_t>(kUpgrades) : nullptr; }
@@ -312,7 +317,7 @@ struct RetailHost : script::Host {
         return true;
     }
     // The writes of API 7 the retail host backs; any other answers false, as with no game.
-    bool game_op(const std::string& mod, const std::string& op, const std::vector<double>& n, const std::string&, std::vector<double>* out) override {
+    bool game_op(const std::string& mod, const std::string& op, const std::vector<double>& n, const std::string& text, std::vector<double>* out) override {
         auto arg = [&](std::size_t i, double d = 0.0) { return i < n.size() ? n[i] : d; };
         if (op == "pause") { set_pause(mod, arg(0) != 0); return true; }          // these two hold with or without a game
         if (op == "speed") { set_speed(mod, arg(0, 1.0)); return true; }
@@ -385,6 +390,11 @@ struct RetailHost : script::Host {
             return true;
         }
         if (op == "se") { play_sound(int(arg(0)), int(std::clamp(arg(1, 1.0), 0.0, 4.0) * 0x400)); return true; }
+        if (op == "goto_room") {                                                  // as a script's ChangeScene (0x97): staged, done at the next frame
+            const char* rec = scene_rec(text);
+            if (!rec || !alive) return false;
+            return request_scene(*reinterpret_cast<const std::uint16_t*>(rec), 0) == 0;   // refused while another change is pending
+        }
         if (op == "cam_get") {
             if (!out) return false;
             const float* e = &at<float>(kCamEye);
