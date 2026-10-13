@@ -168,6 +168,7 @@ void drive_poll() {
             const std::size_t sp = l.find(' ');
             if (l.empty()) continue;
             if (l == "panel") { g_panel.open = !g_panel.open; continue; }
+            if (l == "rawactors") { host().game_op("drive", "actors_raw", {}, {}, nullptr); continue; }   // the live list, to the log
             const bool ok = host().run_command(l.substr(0, sp), sp == std::string::npos ? std::string() : l.substr(sp + 1));
             log("[drive] %s%s", l.c_str(), ok ? "" : ": no such command");
         }

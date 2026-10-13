@@ -34,20 +34,26 @@ The notes themselves are gathered in the `yso` repository.
   / [0x6bd9b0]`, floored at 0. `combat.strike` prices a hit on the player with it and takes at least 1.
   Not reproduced: the element table, the random +1, the launch factors, and the flinch and knockback, which
   are the hurt applier's (`FUN_004fd350`).
-- There are two appliers that call the formula: `FUN_004fbb40` (hooked: the player's hits on monsters) and
-  `FUN_004faf20` (2.7 KB, not hooked). The second branches on the victim's class (the first virtual
-  function's result: 0x13 with +0x12 == 9, and 0xd) and is reached from the melee box test `FUN_004fed50`
-  and two bullet updates. **Open:** which hits go through it. Until that is read, the "damage" filter and
-  the boss pool may miss them.
+- **There are two appliers that call the formula.** `FUN_004fbb40` is the player's hit on a monster (a
+  GoActor). `FUN_004faf20` is the player's hit on anything else, which it tells apart by the victim's class
+  (its first virtual function): 0xd a map object (a boss's part, a breakable), 0x13 a sprite object. Its
+  damage is in eax at `0x4fb0b3`, the victim in esi. Both are hooked now. Driven in S_2099: Hugo's shots on
+  Nygtilger gave "damage dealt 3..4" on a part of DEF 98 and 0 on one of DEF 999.
 
 ## Bosses
 
 - **The boss gauge** is widget 3 of the bar array, at `0x6d5fd4`: +4 the owner's instance id (an actor's
   +0x14; 0 = no gauge), +0x30 the HP shown, +0x38 the maximum. Driven in S_2099 (Nygtilger): 7000 / 7000.
   Backs `world.boss`.
-- The gauge's maximum there (7000) is not the boss's record HP in CleriaCore's table (1200). **Open:** what
-  the gauge's owner is in that fight (the sum of the parts, or another actor).
-- **A boss is not in `world.actors()`**: in S_2099 the list was empty with the gauge up. The list keeps
-  actors of kind 0x8 with a cast other than the player's; the boss or its parts do not pass. **Open:** the
-  boss actors' kind bits, so that `world.boss().actor` and the boss pool (`combat.boss_bonus`, which looks
-  for the gauge's owner among the hit actors) can work. The pool is written and untested.
+- **A boss built of map objects is not an actor.** In the Nygtilger fight the actor list holds the player
+  and Hugo's two Eyes (cast 176, kind 1) and nothing else. The gauge's owner id is `0x0D000007`: the high
+  byte of an instance id is the object's class (0x01 an actor, 0x0D a map object), so the owner is a map
+  object, in the room geometry pool (`0x730224`, count `0x730228`), not in `0x730098`. `world.boss().actor`
+  is therefore nil for such a boss, and `world.actors()` does not list its parts.
+- The gauge there reads 7000 / 7000 while CleriaCore's boss table gives Nygtilger 1200 HP. **Open:** what the
+  gauge's owner sums.
+- **The boss pool works through the part hook.** Driven: a pool of 3000, then shots; the pool was spent on
+  the first hit above 0 and the gauge fell from 7000 to 6650. The game caps what a part can take (350
+  there, [H] the part's own HP), so a pool larger than the part is partly lost.
+- A boss's attacks respect the hurt invulnerability: with +0x734 set after the scene, the player stood in
+  Nygtilger's lightning at full HP. Set before the room change, it is lost with the rebuilt actor.

@@ -34,6 +34,7 @@ bool game_file(const char* path, std::vector<std::uint8_t>& out);
 void set_exp_factor(float f);          // hooks.cpp: the game's own EXP rate, which every award is multiplied by
 // Combat, asked by hooks.cpp as the game applies it (the game thread). An actor is the game's own record.
 int on_damage(bool dealt, int value, const void* victim, const void* attacker);   // -> the damage that leaves the HP
+int on_part_damage(int value, const void* victim);                               // the same for a hit on a map object (a boss's part)
 float on_exp(float value, int source, const void* victim);    // -> the EXP awarded; source 0 a kill, 1 a boss
 void on_kill(const void* victim, float* sp);                   // a monster died of the player's hit; *sp = the SP it gives, before the game's scale
 bool on_drop(int* item, const float* pos);                     // a kill's drop that passed its roll; false = nothing drops

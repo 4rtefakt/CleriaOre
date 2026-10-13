@@ -444,6 +444,17 @@ struct RetailHost : script::Host {
             *out = {id, double(at<float>(0x6d5fd4 + 0x30)), double(at<float>(0x6d5fd4 + 0x38))};
             return true;
         }
+        if (op == "actors_raw") {                                                 // for study: every record of the live list, to the log
+            const int count = at<std::int32_t>(kActorCount);
+            for (int i = 0; i < count && i < 256; ++i)
+                if (char* a = actor_at(i))
+                    ore::log("[actors] %2d %p vt %08x kind %08x cast %3d id %5d hp %.0f/%.0f flags %08x dead %02x pos %.1f %.1f %.1f", i, a,
+                        in<std::uint32_t>(a, 0), in<std::uint32_t>(a, kAKind), in<std::int32_t>(a, kACast), in<std::int32_t>(a, 0x14),
+                        in<float>(a, kAHp), in<float>(a, kAMaxHp), in<std::uint32_t>(a, 0x12c), in<std::uint8_t>(a, kADead),
+                        in<float>(a, kAPos), in<float>(a, kAPos + 4), in<float>(a, kAPos + 8));
+            ore::log("[actors] gauge owner %d", at<std::int32_t>(0x6d5fd8));
+            return true;
+        }
         if (op == "cam_get") {
             if (!out) return false;
             const float* e = &at<float>(kCamEye);

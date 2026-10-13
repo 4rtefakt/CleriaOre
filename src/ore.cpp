@@ -485,6 +485,28 @@ int on_damage(bool dealt, int value, const void* victim, const void* attacker) {
     return pooled(int(answered(combat(q), value, 999999.0)));
 }
 
+// The player's hit on a map object (class 0xd: a boss's part, a breakable), priced by FUN_004faf20: the "damage"
+// filter with no cast, then the mods' pooled damage while the boss gauge is up.
+int on_part_damage(int value, const void* victim) {
+    using Kind = script::CombatQuery::Kind;
+    if (!victim) return value;
+    int d = value;
+    if (combat_on(Kind::Damage)) {
+        script::CombatQuery q;
+        q.kind = Kind::Damage;
+        q.value = value;
+        q.num = {{"formula", double(value)}, {"def", double(field<float>(victim, kActDef))}, {"hp", double(field<float>(victim, 0x98))},
+                 {"max_hp", double(field<float>(victim, 0x94))}};
+        q.str = {{"dir", "dealt"}};
+        d = int(answered(combat(q), value, 999999.0));
+    }
+    if (d > 0 && g_boss_bonus >= 1.0 && *reinterpret_cast<const std::int32_t*>(kBossGaugeOwner)) {
+        d += int(g_boss_bonus);
+        g_boss_bonus = 0;
+    }
+    return d;
+}
+
 // An EXP award above 0, as it joins the total.
 float on_exp(float value, int source, const void* victim) {
     using Kind = script::CombatQuery::Kind;

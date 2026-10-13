@@ -64,6 +64,12 @@ int __fastcall hook_read(Reader* r, void*, void* dst, std::uint32_t n, std::uint
 // they floor the award.
 constexpr std::uintptr_t kExpRate = 0x76a5fc;
 constexpr std::uintptr_t kDealt = 0x4fc802, kTaken = 0x4fdc58, kExpKill = 0x4fcc07, kKill = 0x4fcc18, kExpBoss = 0x4fa525, kExpOther = 0x5226c7;
+// FUN_004faf20, the applier of a hit on anything that is not a monster (a map object: a boss's part, a breakable):
+//   0x4fb0ae  call FUN_004fa550         the damage, in eax; esi the victim
+//   0x4fb0b3  mov edx, [esi] ; add esp, 8
+constexpr std::uintptr_t kPart = 0x4fb0b3;
+constexpr std::uint8_t kPartBytes[] = {0x8b, 0x16, 0x83, 0xc4, 0x08};
+void* g_part = nullptr;
 constexpr std::uint8_t kDealtBytes[] = {0x8b, 0x4d, 0xe4, 0xf3, 0x0f, 0x10, 0x87, 0x98, 0x00, 0x00, 0x00};
 constexpr std::uint8_t kTakenBytes[] = {0xf3, 0x0f, 0x10, 0x87, 0x98, 0x00, 0x00, 0x00, 0x66, 0x0f, 0x6e, 0xce};
 constexpr std::uint8_t kExpKillBytes[] = {0xf3, 0x0f, 0x58, 0xc1, 0xf3, 0x0f, 0x11, 0x05, 0x48, 0xa7, 0x76, 0x00};
@@ -78,6 +84,7 @@ void* g_exp_other = nullptr;
 float g_exp_value = 0;   // the award a hook hands to on_exp and takes back
 
 int __cdecl dealt(int value, const void* victim, const void* attacker) { return on_damage(true, value, victim, attacker); }
+int __cdecl part(int value, const void* victim) { return on_part_damage(value, victim); }
 int __cdecl taken(int value, const void* victim, const void* attacker) { return on_damage(false, value, victim, attacker); }
 void __cdecl exp_award(const void* victim, int source) { g_exp_value = on_exp(g_exp_value, source, victim); }
 void __cdecl killed(const void* victim, float* sp) { on_kill(victim, sp); }
@@ -98,6 +105,18 @@ __declspec(naked) void hook_dealt() {
         mov  dword ptr [ebp - 0x1c], eax
         ORE_LEAVE
         jmp  dword ptr [g_dealt]        // mov ecx, [ebp-0x1c] ; ...
+    }
+}
+__declspec(naked) void hook_part() {
+    __asm {
+        ORE_ENTER
+        push esi                        // the victim
+        push eax
+        call part
+        add  esp, 8
+        mov  dword ptr [ebx + 28], eax  // pushad's eax
+        ORE_LEAVE
+        jmp  dword ptr [g_part]
     }
 }
 __declspec(naked) void hook_taken() {
@@ -517,7 +536,7 @@ const Site kSites[] = {
     SITE(kDealt, kDealtBytes, &hook_dealt, &g_dealt),     SITE(kTaken, kTakenBytes, &hook_taken, &g_taken),
     SITE(kExpKill, kExpKillBytes, &hook_exp_kill, &g_exp_kill), SITE(kKill, kKillBytes, &hook_kill, &g_kill),
     SITE(kExpBoss, kExpAddBytes, &hook_exp_boss, &g_exp_boss), SITE(kExpOther, kExpAddBytes, &hook_exp_other, &g_exp_other),
-    SITE(kRecompute, kRecomputeBytes, &hook_recompute, &g_recompute),
+    SITE(kRecompute, kRecomputeBytes, &hook_recompute, &g_recompute), SITE(kPart, kPartBytes, &hook_part, &g_part),
     SITE(kSpawn, kSpawnBytes, &hook_spawn, &g_spawn),       SITE(kTouch, kTouchBytes, &hook_touch, &g_touch),
 };
 #undef SITE

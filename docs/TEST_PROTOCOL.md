@@ -53,7 +53,8 @@ the environment variable `CLERIAORE_DRIVE` set; each frame it then reads, in `cl
 
 - `keys.txt`: the keys held, as hexadecimal DirectInput codes (`D0` Down, `34` the period key, the OK of
   the game's WASD preset); they reach the game with or without the window's focus;
-- `cmd.txt`: one `cleria.command` a line (`name args`), run and the file removed; `panel` toggles F1.
+- `cmd.txt`: one `cleria.command` a line (`name args`), run and the file removed; `panel` toggles F1;
+  `rawactors` writes the game's whole actor list to the log.
 
 The probe mod has commands for it: `actors`, `labels`, `weaken`, `remove`, `tp x y z`, `speed f`,
 `hold 0|1`, `image`, `window`, and `lua <code>` for anything else.
