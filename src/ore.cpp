@@ -48,6 +48,7 @@ std::string g_state;                   // game.state() at the last tick, for sta
 std::map<std::string, std::array<std::pair<double, double>, 3>> g_stat_mods;   // per mod: {add, mul} of max HP, ATK, DEF
 std::set<std::string> g_pause;         // the mods that hold the game
 double g_boss_bonus = 0;               // cleria.combat.boss_bonus
+std::map<std::string, unsigned> g_hud_hidden;   // cleria.hud.show: per mod, the parts it hides
 float g_exp_factor = 1.0f;             // the mods' exp_factor product, as last written into the game's rate
 std::map<std::string, std::array<double, 2>> g_tune;   // per mod: the factors of the player's speed and jump
 constexpr std::uintptr_t kBossGaugeOwner = 0x6d5fd8;   // the boss gauge's widget +4: its owner's instance id (actor +0x14), 0 = no gauge
@@ -262,6 +263,15 @@ double tune(int key) {
     for (const auto& [id, a] : g_tune) f *= a[std::size_t(key)];
     return key == 0 ? std::clamp(f, 0.1, 5.0) : std::clamp(f, 0.1, 4.0);
 }
+void set_hud_hidden(const std::string& mod, unsigned bits) {
+    if (bits) g_hud_hidden[mod] = bits;
+    else g_hud_hidden.erase(mod);
+}
+unsigned hud_hidden() {
+    unsigned v = 0;
+    for (const auto& [id, b] : g_hud_hidden) v |= b;
+    return v;
+}
 double boss_bonus(double n) {
     if (n >= 0) g_boss_bonus = n > 0 ? (std::min)(g_boss_bonus + n, 1.0e7) : 0.0;
     return g_boss_bonus;
@@ -336,6 +346,7 @@ void reload(const std::string& id) {
         g_stat_mods.erase(id);
         g_pause.erase(id);
         g_tune.erase(id);
+        g_hud_hidden.erase(id);
         g_speed.erase(id);
         recompute_stats();
         up.reset();
@@ -441,6 +452,7 @@ void emit_named(const events::Event& e) { emit(e, host().room()); }
 void on_tick() {
     if (WaitForSingleObject(g_started, 0) != WAIT_OBJECT_0 || (g_scripts.empty() && !content_on())) return;
     if (!g_tune.empty()) tune_tick();
+    if (!g_hud_hidden.empty()) hud_tick();
     world_tick();
     script::Host& h = host();
     const std::string room = h.room();
@@ -480,6 +492,25 @@ void on_tick() {
     }
     float factor = 1.0f;   // cleria.game.exp_factor: the mods' factors of the EXP the game awards at this level
     const int level = int(h.stat(script::Host::Stat::Level));
+    if (h.in_game()) {     // API 7: level_up, retry (the game's retry count, g_flags[196]), floor_changed
+        static int was_level = 0, was_retry = 0, was_floor = -2;
+        static std::string was_room;
+        if (was_level > 0 && level > was_level) emit(events::Event::named("level_up").with("level", level).with("max_hp", h.stat(script::Host::Stat::MaxHp)), room);
+        was_level = level;
+        const int retries = h.flags()[196];
+        if (retries > was_retry) emit(events::Event::named("retry").with("snapshot", 1), room);
+        was_retry = retries;
+        if (room != was_room) {
+            was_room = room;
+            int fl = 0;
+            const std::string title = h.room_title();
+            std::size_t i = 0;
+            while (i < title.size() && title[i] >= '0' && title[i] <= '9') fl = fl * 10 + (title[i++] - '0');
+            if (i == 0 || i >= title.size() || title[i] != 'F') fl = 0;
+            if (was_floor != -2 && fl > 0 && fl != was_floor) emit(events::Event::named("floor_changed").with("floor", fl).with("old", was_floor > 0 ? was_floor : 0), room);
+            if (fl > 0 || was_floor == -2) was_floor = fl;
+        }
+    }
     for (auto& m : g_scripts)
         if (m->ok()) factor *= m->exp_factor(level);
     g_exp_factor = factor;
@@ -549,7 +580,24 @@ int on_damage(bool dealt, int value, const void* victim, const void* attacker, c
         g_boss_bonus = 0;
         return d;
     };
-    if (!combat_on(Kind::Damage)) return pooled(value);
+    // API 7: the hit as it lands, past the filters.
+    auto landed = [&](int d) {
+        if (g_scripts.empty()) return d;
+        const float hp = field<float>(victim, 0x98) - float(d), max_hp = field<float>(victim, 0x94);
+        if (dealt) {
+            emit(events::Event::named("enemy_hit").with("actor", double(field<std::int32_t>(victim, 0x14))).with("cast", double(vcast))
+                     .with("damage", d).with("hp", (std::max)(hp, 0.0f)).with("max_hp", max_hp).with("killed", hp < 1.0f ? 1 : 0),
+                 host().room());
+        } else {
+            events::Event e = events::Event::named("player_hit");
+            e.with("damage", d).with("hp", (std::max)(hp, 0.0f)).with("max_hp", max_hp);
+            if (attacker && field<std::uint32_t>(attacker, 0) == 0x69ba3c)
+                e.with("cast", double(field<std::int32_t>(attacker, kActCast))).with("level", double(field<std::int32_t>(attacker, kActLevel)));
+            emit(e, host().room());
+        }
+        return d;
+    };
+    if (!combat_on(Kind::Damage)) return landed(pooled(value));
     script::CombatQuery q;
     q.kind = Kind::Damage;
     q.value = value;
@@ -566,7 +614,7 @@ int on_damage(bool dealt, int value, const void* victim, const void* attacker, c
         q.num.push_back({"actor", double(field<std::int32_t>(monster, 0x14))});
     }
     q.str = {{"dir", dealt ? "dealt" : "taken"}};
-    return pooled(int(answered(combat(q), value, 999999.0)));
+    return landed(pooled(int(answered(combat(q), value, 999999.0))));
 }
 
 // The player's hit on a map object (class 0xd: a boss's part, a breakable), priced by FUN_004faf20: the "damage"
@@ -647,6 +695,7 @@ void on_kill(const void* victim, float* sp) {
     for (int k = 0; k < 3; ++k) e.pos[k] = field<float>(victim, kActPos + 4 * std::size_t(k));
     e.amount = g_kill_exp;
     e.amount2 = credited;
+    e.num.emplace_back("actor", double(field<std::int32_t>(victim, 0x14)));   // API 7: which one (a mod's variant)
     emit(e, host().room());
 }
 

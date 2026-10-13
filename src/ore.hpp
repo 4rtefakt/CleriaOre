@@ -95,6 +95,10 @@ double boss_bonus(double n);
 // cleria.player.tune: a mod's factor of the player's speed (0) and jump (1); the product of the mods'.
 void set_tune(const std::string& mod, int key, double factor);
 double tune(int key);
+// cleria.hud.show: the parts a mod hides (1 status, 2 boss gauge, 4 messages).
+void set_hud_hidden(const std::string& mod, unsigned bits);
+unsigned hud_hidden();
+void hud_tick();                                     // host.cpp: the game's HUD kept out of sight while a mod hides it
 void tune_tick();                                    // host.cpp: the player's actor follows, each step
 // cleria.world.add_filter: whether a mod has a filter of that kind, and the first answer that is not "pass".
 bool world_on(const char* kind);

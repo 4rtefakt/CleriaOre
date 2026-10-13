@@ -69,18 +69,22 @@ hooked and the log says so.
   `stop_music`, `screen.fade` and `flash`.
 - Sessions: `game.load` (from the title too), `game.retry`, `game.to_title`. The camera: `camera.shake`,
   `camera.look_at`. Effects: `player_effect` and `world.puppet_effect`. `script.run`, a script of the game's.
-- The room's doors: `game.exits` and `take_exit`. The look: `player.set_look`, and `world.form`'s `scale` and
-  `tint` (untested).
+- The room's doors: `game.exits` and `take_exit`. The look: the `scale` of `player.set_look` and of `world.form` (not
+  the glow or the tint).
+- API 7's events from the game: `enemy_hit`, `player_hit`, `level_up`, `floor_changed`, `retry`, `enemy_spawned`,
+  `player_bullet`, `player_effect`. Monster variants (`content.define_monster`, `morph`): the numbers, the scale,
+  `on_hit`, `on_death` and the phases. `hud.show` for the whole HUD.
 - Bullets: `player_bullet` for each of the player's, and `world.show_bullet`, the same bullet again for show.
 - The blessing shop: `blessing_bought`, and `cleria.shop.add_filter`'s Buy answer (another effect, or none).
 - The world's filters: `"spawn"` (the multipliers and "suppress"; not another cast or level) with
   `enemy_spawned`, and `"exit"` (another room, or "suppress"; no `index` or `door`).
 
-What does not exist yet, so a script's call answers its default: monster variants
-(`content.define_monster`) and a variant's look, a puppet's `glow`, `aura`, `hittable` and `target`, the
-camera's distance and field of view (`camera.set`, `reset`), `hud.show`, `new_game`, a sound or music file of the mod's own, the shop filter's prices
-and rows, item icons, `unlock_character`, the save profiles, `text*.ini`, and the load order in the game's
-panel.
+What does not exist yet, so a script's call answers its default: a variant's name, tint and own sprite, a
+puppet's `glow`, `aura`, `hittable` and `target` (the game's monsters chase and hit only its own player), the
+camera's distance and field of view (`camera.set`, `reset`), the boss gauge or the messages hidden alone,
+`new_game`, a sound or music file of the mod's own, the shop filter's prices and rows, item icons,
+`unlock_character` (it would write into the player's clear records), the save profiles, `text*.ini`, and the
+load order in the game's panel.
 
 The scripted mods of `cleriacore-mods` (17 with the probes) all start and run a fight and room changes without
 a script error. **Co-op runs against a fake teammate** (`tools/coop_bot.py`), as host (the join, the

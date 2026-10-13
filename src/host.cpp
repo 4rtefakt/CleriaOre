@@ -598,10 +598,9 @@ struct RetailHost : script::Host {
             in<float>(a, kADef) *= mul(3);
             in<float>(a, 0xb0) *= mul(4);
             in<std::int32_t>(a, 0xc4) = int(float(in<std::int32_t>(a, 0xc4)) * mul(5));
-            // The look: what the draw takes from the actor (FUN_004740e0), its colour at +0x148 (ARGB) and its scale at
-            // +0x248. [H] a monster's own handler may write them again; a held one keeps them.
+            // The look: the scale the draw takes from the actor (+0x248, FUN_004740e0's last argument). The tint is not
+            // backed: the colour at +0x148 did not show when written.
             if (arg(6, -1) > 0) in<float>(a, 0x248) = float(std::clamp(arg(6), 0.2, 5.0));
-            if (arg(7, -1) >= 0) in<std::uint32_t>(a, 0x148) = 0xff000000u | (std::uint32_t(arg(7)) & 0xffffffu);
             if (std::isfinite(arg(8, NAN))) hold(a, arg(8) == 0);
             return true;
         }
@@ -843,10 +842,19 @@ struct RetailHost : script::Host {
             at<std::int32_t>(0x76a538) = *reinterpret_cast<const std::int32_t*>(e + 0x3c);
             return true;
         }
-        if (op == "player_look") {                                                // (scale, glow 0xRRGGBB or -1): the player's own sprite
+        if (op == "player_look") {                                                // (scale, glow): the player's own sprite; the glow is not backed
             if (std::isfinite(arg(0, NAN))) in<float>(player, 0x248) = float(std::clamp(arg(0), 0.3, 3.0));
-            if (std::isfinite(arg(1, NAN))) in<std::uint32_t>(player, 0x148) = arg(1) < 0 ? 0xffffffffu : (0xff000000u | (std::uint32_t(arg(1)) & 0xffffffu));
             return true;
+        }
+        // The game's HUD has one fade for all its parts (0x74e688, and the tint 0x74e68c made from it each step): a
+        // mod that hides the status part hides the whole HUD. The boss gauge or the messages alone are not backed.
+        if (op == "hud_show") {
+            static std::map<std::string, unsigned> hidden;
+            unsigned& v = hidden[mod];
+            const unsigned bit = unsigned(arg(0));
+            v = arg(1) != 0 ? (v & ~bit) : (v | bit);
+            set_hud_hidden(mod, v & 1u);
+            return (bit & 1u) != 0;
         }
         if (op == "tune") {                                                       // (key, factor): speed 0, jump 1; the rest is not backed
             const int k = int(arg(0, -1));
@@ -1109,6 +1117,13 @@ bool actor_held(const void* actor) {
     if (s.empty()) return false;
     RetailHost::held_room();
     return s.count(actor) != 0;
+}
+// After each step: the HUD's fade back to 0 and its tint to no alpha, so the frame draws none of it. Let go, the
+// game's own fade brings it back in ten steps.
+void hud_tick() {
+    if (!hooked() || !(hud_hidden() & 1u)) return;
+    *reinterpret_cast<float*>(0x74e688) = 0.0f;
+    *reinterpret_cast<std::uint32_t*>(0x74e68c) = 0x00ffffffu;
 }
 void tune_tick() {
     static float wrote[2] = {0, 0}, base[2] = {0, 0};

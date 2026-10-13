@@ -211,3 +211,27 @@ The notes themselves are gathered in the `yso` repository.
   to 1 (`0x769f24`), its current alpha and hold to 0, the door's scene into `0x769fb8` and `0x76a538`, its
   descriptor into `0x769fbc`. The fade's end commits the change. `game.take_exit` makes those writes, without
   the walk through the doorway.
+
+## The look
+
+- **An actor's scale is the float at +0x248**, the last argument its draw (`FUN_004740e0`) hands on. Driven in
+  S_1001: the player at 1.6, a monster at 2 and another at 0.6, each drawn at that size, the running ones
+  included (a handler does not write it back).
+- The colour at +0x148 (the draw's first argument) did not tint the sprite when written, on the player or on a
+  held monster. **Open:** where a sprite's tint comes from.
+
+## The HUD
+
+- **The whole HUD has one fade**: the float at `0x74e688`, which the step moves by 0.1 toward its target
+  (`0x428660..`), and the tint `0x74e68c` it makes from it (white, the alpha from the fade), which every HUD
+  quad is drawn with. Writing both after each step (the fade 0, the tint `0x00ffffff`) keeps the HUD out of
+  the frame; let go, the game fades it back in ten steps. There is no separate switch for the status part,
+  the boss gauge or the messages.
+
+## Events the loader raises itself
+
+- `enemy_hit` and `player_hit` come from the two damage hooks, past the filters; `level_up` from the level
+  in the stat record rising; `retry` from the game's own retry count (g_flags 196) rising, so the menu's
+  Retry raises it too; `floor_changed` from the floor in the room's name. Driven in S_1001 and S_1009: all
+  but `retry` seen with the right numbers, and a monster variant defined in Lua (four times the HP, a phase at
+  half, `on_hit`, `on_death`) ran its callbacks.
