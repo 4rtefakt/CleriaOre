@@ -83,6 +83,10 @@ double speed();                                      // the product of the mods'
 // cleria.combat.boss_bonus: damage added to the player's next hit on the boss gauge's owner. n > 0 adds, 0 empties,
 // < 0 only reads; -> the pool.
 double boss_bonus(double n);
+// cleria.player.tune: a mod's factor of the player's speed (0) and jump (1); the product of the mods'.
+void set_tune(const std::string& mod, int key, double factor);
+double tune(int key);
+void tune_tick();                                    // host.cpp: the player's actor follows, each step
 // For the overlay (ui.cpp, the game thread):
 std::vector<cleria::mods::Mod>& mod_list();                           // every mod found, in load order
 std::vector<std::unique_ptr<cleria::script::Mod>>& scripts();         // the started scripts

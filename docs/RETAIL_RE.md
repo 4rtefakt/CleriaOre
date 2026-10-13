@@ -57,3 +57,16 @@ The notes themselves are gathered in the `yso` repository.
   there, [H] the part's own HP), so a pool larger than the part is partly lost.
 - A boss's attacks respect the hurt invulnerability: with +0x734 set after the scene, the player stood in
   Nygtilger's lightning at full HP. Set before the room change, it is lost with the rebuilt actor.
+
+## The player
+
+- **An actor's animation state is the object embedded at +0x8f0** (`FUN_00446220` and the draw `FUN_00446340`
+  run on it with `ecx = actor + 0x8f0`): the sheet at +0x8c (actor +0x97c), the animation tag at +0xc0
+  (+0x9b0), the frame at +0xc8 (+0x9b8). Not +0x150, which the decompiler shows as the first argument.
+  Driven as Hugo: sheet 16; tag 2 standing, 266 walking, 256 attacking, the frame cycling 0..7. His Eyes
+  (cast 176, kind 1, in the actor list) read tag 2 or 3 and sheet 255. Backs `player.pose`, `familiars`.
+- **The motion constants live in the player's actor**, copied from CASTINFO when it is built (each room): the
+  speed base at +0x30c, the jump's first velocity at +0x408. Scaling them is enough. Driven in S_1099: 0.7 s
+  of walking covered 6.92 units, 14.41 at a factor of 2, 3.46 at 0.5; a held jump peaked 2.68 above the
+  floor, 8.2 at a factor of 1.5, 0.53 at 0.5. Backs `player.tune` (speed, jump).
+- The WASD preset's keys, for the drive: jump is the right mouse button (`101`), attack the left (`100`).

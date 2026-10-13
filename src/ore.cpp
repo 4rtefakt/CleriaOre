@@ -48,6 +48,7 @@ std::string g_state;                   // game.state() at the last tick, for sta
 std::map<std::string, std::array<std::pair<double, double>, 3>> g_stat_mods;   // per mod: {add, mul} of max HP, ATK, DEF
 std::set<std::string> g_pause;         // the mods that hold the game
 double g_boss_bonus = 0;               // cleria.combat.boss_bonus
+std::map<std::string, std::array<double, 2>> g_tune;   // per mod: the factors of the player's speed and jump
 constexpr std::uintptr_t kBossGaugeOwner = 0x6d5fd8;   // the boss gauge's widget +4: its owner's instance id (actor +0x14), 0 = no gauge
 std::map<std::string, double> g_speed; // a mod's factor of the game's speed
 
@@ -252,6 +253,14 @@ void set_pause(const std::string& mod, bool on) {
     else g_pause.erase(mod);
 }
 bool paused() { return !g_pause.empty(); }
+void set_tune(const std::string& mod, int key, double factor) {
+    g_tune.try_emplace(mod, std::array<double, 2>{1, 1}).first->second[std::size_t(key)] = factor;
+}
+double tune(int key) {
+    double f = 1.0;
+    for (const auto& [id, a] : g_tune) f *= a[std::size_t(key)];
+    return key == 0 ? std::clamp(f, 0.1, 5.0) : std::clamp(f, 0.1, 4.0);
+}
 double boss_bonus(double n) {
     if (n >= 0) g_boss_bonus = n > 0 ? (std::min)(g_boss_bonus + n, 1.0e7) : 0.0;
     return g_boss_bonus;
@@ -325,6 +334,7 @@ void reload(const std::string& id) {
         if (!def) return;
         g_stat_mods.erase(id);
         g_pause.erase(id);
+        g_tune.erase(id);
         g_speed.erase(id);
         recompute_stats();
         up.reset();
@@ -365,6 +375,7 @@ void on_saved(const char* file) {
 
 void on_tick() {
     if (WaitForSingleObject(g_started, 0) != WAIT_OBJECT_0 || (g_scripts.empty() && !content_on())) return;
+    if (!g_tune.empty()) tune_tick();
     script::Host& h = host();
     const std::string room = h.room();
     const bool session = g_session != Session::None && !room.empty();   // a session starts with its first room

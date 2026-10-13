@@ -455,6 +455,35 @@ struct RetailHost : script::Host {
             ore::log("[actors] gauge owner %d", at<std::int32_t>(0x6d5fd8));
             return true;
         }
+        // An actor's animation state is the object embedded at +0x8f0 (FUN_00446220 and FUN_00446340 run on it): the sheet (an index of the
+        // AIA name table) at +0x8c, the animation tag at +0xc0, the frame at +0xc8; its aura (anime_SetAura) at +0x2b4.
+        if (op == "pose") {
+            if (!out) return false;
+            *out = {double(in<float>(player, kAPos)), double(in<float>(player, kAPos + 4)), double(in<float>(player, kAPos + 8)),
+                    double(in<float>(player, kAYaw) * 57.29577951f), double(in<std::int32_t>(player, 0x9b0)), double(in<std::int32_t>(player, 0x9b8)),
+                    double(in<std::int32_t>(player, 0x97c)), 0.0, double(in<std::uint32_t>(player, 0x2b4))};
+            return true;
+        }
+        if (op == "familiars") {                                                  // Hugo's Eyes: the actors of cast 176
+            if (!out) return false;
+            out->clear();
+            const int count = at<std::int32_t>(kActorCount);
+            for (int i = 0; i < count && i < 256; ++i) {
+                char* a = actor_at(i);
+                if (!a || in<std::int32_t>(a, kACast) != 176 || (in<std::uint8_t>(a, kADead) & 2)) continue;
+                for (double v : {double(176), double(in<float>(a, kAPos)), double(in<float>(a, kAPos + 4)), double(in<float>(a, kAPos + 8)),
+                                 double(in<float>(a, kAYaw) * 57.29577951f), double(in<std::int32_t>(a, 0x9b0)), double(in<std::int32_t>(a, 0x9b8)),
+                                 double(in<std::int32_t>(a, 0x97c))})
+                    out->push_back(v);
+            }
+            return true;
+        }
+        if (op == "tune") {                                                       // (key, factor): speed 0, jump 1; the rest is not backed
+            const int k = int(arg(0, -1));
+            if (k < 0 || k > 1) return false;
+            set_tune(mod, k, std::clamp(arg(1, 1.0), 0.0, 10.0));
+            return true;
+        }
         if (op == "cam_get") {
             if (!out) return false;
             const float* e = &at<float>(kCamEye);
@@ -672,6 +701,23 @@ struct RetailHost : script::Host {
 script::Host& host() {
     static RetailHost h;
     return h;
+}
+
+// The player's motion constants are copied from CASTINFO into its actor when it is built (each room): the speed
+// base at +0x30c (CASTINFO +0x48), the jump's first velocity at +0x408. The mods' factors are kept on top of
+// whatever the game last put there.
+void tune_tick() {
+    static float wrote[2] = {0, 0}, base[2] = {0, 0};
+    static const std::size_t off[2] = {0x30c, 0x408};
+    char* player = hooked() ? *reinterpret_cast<char**>(0x74c09c) : nullptr;
+    if (!player) return;
+    for (int k = 0; k < 2; ++k) {
+        float& v = *reinterpret_cast<float*>(player + off[k]);
+        if (v != wrote[k]) base[k] = v;              // the game's own value (a new actor, or never touched)
+        const float want = base[k] * float(tune(k));
+        if (v != want) v = want;
+        wrote[k] = want;
+    }
 }
 
 }  // namespace ore
