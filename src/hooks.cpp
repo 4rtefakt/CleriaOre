@@ -79,6 +79,7 @@ constexpr std::uint8_t kSceneBytes[] = {0x55, 0x8b, 0xec, 0x83, 0xe4, 0xf8, 0x81
 using SceneFn = int(__fastcall*)(int scene, int force);
 SceneFn g_scene = nullptr;
 int __fastcall hook_scene(int scene, int force) {
+    log("[scene] %d asked (force %d), from %d", scene, force, *reinterpret_cast<std::int32_t*>(0x76a534));   // one line a room: what led to a fault is then in the log
     const int to = exit_filter(scene);
     return to ? g_scene(to, force) : int(0x80004005);   // refused, as while another change is pending
 }
@@ -299,7 +300,17 @@ constexpr std::uintptr_t kScript = 0x434970;
 constexpr std::uint8_t kScriptBytes[] = {0x55, 0x8b, 0xec, 0x6a, 0xff, 0x68, 0x8f, 0x4e, 0x67, 0x00, 0x64, 0xa1, 0x00, 0x00, 0x00, 0x00};
 void* g_script = nullptr;
 bool g_script_go = true;
-void __cdecl script_start(const char* name, const void* owner, std::uintptr_t from) { g_script_go = on_script(name, owner, from); }
+void __cdecl script_start(const char* name, const void* owner, std::uintptr_t from) {
+    if (std::getenv("CLERIAORE_DRIVE")) log("[trace] script [%s] from %08x owner %p scene %d", name ? name : "(null)", unsigned(from), owner, *reinterpret_cast<std::int32_t*>(0x76a534));
+    // A start with no name can only fail, and the game says so in a box that ends it ("StartScript target doesn't
+    // exist: [][data\map\.xso]"): it is refused here, as a script that did not start, and its caller noted.
+    if (name && !*name) {
+        log("[script] a start with no name, from %08x (scene %d): refused", unsigned(from), *reinterpret_cast<std::int32_t*>(0x76a534));
+        g_script_go = false;
+        return;
+    }
+    g_script_go = on_script(name, owner, from);
+}
 __declspec(naked) void hook_script() {
     __asm {
         ORE_ENTER
