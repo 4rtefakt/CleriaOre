@@ -58,10 +58,19 @@ add_library(dinput8 SHARED
   src/host.cpp
   src/ui.cpp
   src/exports.def)
-target_include_directories(dinput8 PRIVATE external/CleriaCore/apps/cleria-view)   # view_ui.inl
 target_link_libraries(dinput8 PRIVATE cleria-modkit miniz minhook imgui d3d9)
 target_compile_definitions(dinput8 PRIVATE NOMINMAX)   # CleriaCore's sources use std::min / std::max
 set_target_properties(dinput8 PROPERTIES PREFIX "" OUTPUT_NAME "dinput8")
+
+# CleriaOre.exe: the mods and the loader managed outside the game (src/manager). It installs the dinput8.dll
+# and the fonts/ beside it, so the fonts are laid next to the build's output.
+add_executable(CleriaOre WIN32 src/manager/main.cpp)
+target_include_directories(CleriaOre PRIVATE src)
+target_link_libraries(CleriaOre PRIVATE cleria-modkit imgui d3d9 comdlg32 shell32 advapi32)
+target_compile_definitions(CleriaOre PRIVATE NOMINMAX)
+add_dependencies(CleriaOre dinput8)
+add_custom_command(TARGET CleriaOre POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_directory
+  "${CMAKE_SOURCE_DIR}/external/CleriaCore/third_party/fonts" "$<TARGET_FILE_DIR:CleriaOre>/fonts")
 
 # ore-loadtest: loads the built dinput8.dll as the game would, checks that DirectInput8Create still
 # reaches the system DLL and that a sample Lua mod of CleriaCore starts. No game needed.

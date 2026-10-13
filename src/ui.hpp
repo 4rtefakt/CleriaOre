@@ -1,11 +1,14 @@
-// The overlay: Dear ImGui drawn in the game's own EndScene, with CleriaCore's shell UI kit (its
-// apps/cleria-view/view_ui.inl, used as it is: the same panel, rows and palette as CleriaCore's F1).
+// The overlay: Dear ImGui drawn in the game's own EndScene, with CleriaOre's UI kit (kit.inl: the API of
+// CleriaCore's shell kit, in the look of Ys Origin's own menus).
 //   - the mods' HUD layers (cleria.hud.layer), every frame;
 //   - the F1 panel: the mods, On / Off, and each mod's own page (cleria.ui.page).
 #pragma once
 #include <algorithm>
 #include <cctype>
 #include <cfloat>
+#include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <functional>
 #include <string>
@@ -13,8 +16,8 @@
 
 #include "imgui.h"
 
-namespace fs = std::filesystem;   // view_ui.inl names it so
-#include "view_ui.inl"
+namespace fs = std::filesystem;   // the kit names it so
+#include "kit.inl"
 
 namespace ore {
 
