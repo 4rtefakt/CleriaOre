@@ -2,6 +2,7 @@
 // (the build hooks.cpp checks; nothing here is read unless the hooks went in). What is not backed yet
 // keeps script::Host's harmless default: images and icons, the stat modifiers, pickups, the save profiles.
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -158,6 +159,24 @@ struct RetailHost : script::Host {
         return name;
     }
     void emit(const events::Event& e) override { events::bus().emit(e); }
+    // The room's own name, from the game's scene table in memory (SCENELIST.SL: the array at DAT_0074c124, DAT_0074e230
+    // records of 0x1c8, the path "s_10\s_1001\" at +4, the display string at +0xc4), after its ':' as CleriaCore gives it.
+    std::string room_title() override {
+        const std::string room = this->room();
+        const char* recs = hooked() ? at<const char*>(0x74c124) : nullptr;
+        const int count = recs ? at<std::int32_t>(0x74e230) : 0;
+        if (room.empty() || count <= 0 || count > 4096) return {};
+        for (int i = 0; i < count; ++i) {
+            const char* rec = recs + std::size_t(i) * 0x1c8;
+            std::string path(rec + 4, strnlen(rec + 4, 0xc0));
+            for (char& c : path) c = char(std::toupper(static_cast<unsigned char>(c)));
+            if (path.find(room + "\\") == std::string::npos) continue;
+            const std::string display(rec + 0xc4, strnlen(rec + 0xc4, 0x100));
+            const std::size_t k = display.find(':');
+            return k != std::string::npos && k + 2 <= display.size() ? display.substr(k + 2) : display;
+        }
+        return {};
+    }
     bool frozen() override { return hooked() && (at<std::int32_t>(kFix) | at<std::int32_t>(kFix + 4)) != 0; }
     std::int32_t* upgrades() override { return hooked() ? &at<std::int32_t>(kUpgrades) : nullptr; }
     std::map<std::string, std::pair<int, std::string>> chests() override { return ore::chests(); }

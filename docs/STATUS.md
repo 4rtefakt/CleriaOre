@@ -37,7 +37,7 @@ What works:
   game publishes), `set_actor`, `remove`, and `spawn` for a cast the room already holds (the game loads a
   monster's model with the room). An actor's id is its record's address, good for the room.
 - Game operations: `player.set_position`, `set_mp`, `set_boost`, `set_exp`, heal and hurt, `game.pause`,
-  `game.set_speed`, the random seed, a sound of the game's (`audio.se`), `camera.get`.
+  `game.set_speed`, `game.room_title` (the game's scene table; so `floor` and `zone`), the random seed, a sound of the game's (`audio.se`), `camera.get`.
 - `content/*.ini`: `chests.ini`, `rules.ini`, `pickups.ini` (items of the game's own), new items
   (0x100..0x1FF) kept with the save, the retail items' patched name, description and value.
 - The events CleriaCore's content layer reports: `chest_opened`, `door_opened`, `boss_defeated`, `death`
@@ -66,7 +66,7 @@ What does not exist yet, so a script's call answers its default: puppets and mon
 (`world.puppet`, `world.form`, `content.define_monster`), the world filters (`spawn`, `exit`), a hit dealt by
 a script (`combat.hit`, `strike`, `damage`), the camera's and the fader's writes, music, `goto_room` and the
 exits, `new_game` / `load` / `retry`, the equipment and the ailments, the shop filter and `blessing_bought`,
-`room_title` (so `floor` and `zone`), item icons, `unlock_character`, the save profiles, `text*.ini`, and the
+item icons, `unlock_character`, the save profiles, `text*.ini`, and the
 load order in the game's panel. Co-op needs most of the first line.
 
 How to test a build by hand, and the drive that steers the game for unattended tests: [TEST_PROTOCOL.md](TEST_PROTOCOL.md).
