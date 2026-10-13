@@ -3,7 +3,11 @@
 #include <windows.h>
 
 #include <algorithm>
+#include <array>
 #include <chrono>
+#include <deque>
+#include <set>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <iterator>
@@ -38,6 +42,10 @@ events::FlagWatch g_watch;     // g_flags at the last tick
 Sidecar g_sidecar;             // the session's: read with a load, written with a save, emptied by a new game
 enum class Session { None, NewGame, Load } g_session = Session::None;   // its event waits for the next tick
 int g_session_slot = -1;
+std::set<std::string> g_reload;        // scripts to start afresh at the next frame
+std::vector<std::string> g_log_tail;   // the last lines the scripts logged (cleria.log_lines)
+std::string g_state;                   // game.state() at the last tick, for state_changed
+std::map<std::string, std::array<std::pair<double, double>, 3>> g_stat_mods;   // per mod: {add, mul} of max HP, ATK, DEF
 
 // "yso_05.bin" -> 5: the file number CleriaCore calls the slot; -1 for a name without one.
 int slot_of(const char* file) {
@@ -232,6 +240,75 @@ void start(bool hooked) {
 }
 
 Sidecar& sidecar() { return g_sidecar; }
+
+void request_reload(const std::string& mod) { g_reload.insert(mod); }
+const std::vector<std::string>& log_tail() { return g_log_tail; }
+void log_script(const std::string& mod, const std::string& text) {
+    log("[lua:%s] %s", mod.c_str(), text.c_str());
+    g_log_tail.push_back(mod + ": " + text);
+    if (g_log_tail.size() > 200) g_log_tail.erase(g_log_tail.begin());
+}
+script::Mod* window_mod() {
+    for (auto& m : g_scripts)
+        if (m->ok() && m->window()) return m.get();
+    return nullptr;
+}
+
+// As CleriaCore's (view_lua.inl LuaHost::set_modifier): a mod's {0, 0} is "none"; the adds are summed, the muls multiplied.
+void set_modifier(const std::string& mod, int stat, double add, double mul) {
+    if (stat < 0 || stat > 2) return;
+    auto& a = g_stat_mods[mod];
+    for (auto& x : a)
+        if (x.first == 0 && x.second == 0) x.second = 1;
+    a[std::size_t(stat)] = {add, mul};
+    recompute_stats();
+}
+std::pair<double, double> modifier(const std::string& mod, int stat) {
+    const auto it = g_stat_mods.find(mod);
+    if (it == g_stat_mods.end() || stat < 0 || stat > 2) return {0.0, 1.0};
+    return it->second[std::size_t(stat)];
+}
+float modified(int stat, float base) {
+    double add = 0, mul = 1;
+    for (const auto& [id, a] : g_stat_mods) {
+        add += a[std::size_t(stat)].first;
+        mul *= a[std::size_t(stat)].second;
+    }
+    if (add == 0 && mul == 1) return base;
+    const double v = (double(base) + add) * mul;
+    return float(stat == 0 ? std::clamp(v, 1.0, 999.0) : stat == 1 ? (std::max)(v, 0.0) : v);   // the game's own cap; ATK is raised to a power
+}
+
+// A key or a pad button went down while no panel holds the input: the mods' actions bound to it, then "input".
+void on_input(const std::string& name, bool pad) {
+    if (WaitForSingleObject(g_started, 0) != WAIT_OBJECT_0 || g_scripts.empty() || name.empty()) return;
+    auto same = [](const std::string& a, const std::string& b) { return _stricmp(a.c_str(), b.c_str()) == 0; };
+    for (std::size_t mi = 0; mi < g_scripts.size(); ++mi) {
+        script::Mod& m = *g_scripts[mi];
+        for (std::size_t i = 0; i < m.actions_.size(); ++i)
+            if (same(pad ? m.actions_[i].pad : m.actions_[i].key, name)) m.run_action(i);
+    }
+    emit(events::Event::named("input").with(pad ? "pad" : "key", name), host().room());
+}
+
+// A script started afresh: its Lua state is closed with all it registered, its stat modifiers go, its main
+// file runs again.
+void reload(const std::string& id) {
+    for (auto& up : g_scripts) {
+        if (up->id() != id) continue;
+        const mods::Mod* def = nullptr;
+        for (const mods::Mod& m : g_list)
+            if (m.m.id == id) def = &m;
+        if (!def) return;
+        g_stat_mods.erase(id);
+        recompute_stats();
+        up.reset();
+        up = std::make_unique<script::Mod>(def->m.id, def->label(), def->m.version, def->root, host());
+        const bool ok = up->start(def->m.script);
+        log("[lua] %s: %s", def->label().c_str(), ok ? "reloaded" : ("reload failed: " + up->error()).c_str());
+        return;
+    }
+}
 bool session_pending() { return g_session != Session::None; }
 int room_ticks() { return g_room_ticks; }
 
@@ -294,6 +371,10 @@ void on_tick() {
     if (!room.empty()) {
         watch_game(h.flags(), h.in_game() ? h.stat(script::Host::Stat::Hp) : g_hp, room);   // no player between two rooms
         g_watch.diff(h.flags(), events::bus(), room);
+    }
+    if (const std::string st = h.game_state(); st != g_state) {   // API 7: state_changed
+        if (!g_state.empty()) emit(events::Event::named("state_changed").with("state", st).with("old", g_state), room);
+        g_state = st;
     }
     float factor = 1.0f;   // cleria.game.exp_factor: the mods' factors of the EXP the game awards at this level
     const int level = int(h.stat(script::Host::Stat::Level));
@@ -414,6 +495,101 @@ void on_kill(const void* victim, float* sp) {
     emit(e, host().room());
 }
 
+// One drop of a killed monster. A filter may suppress it or name another item of the game's.
+bool on_drop(int* item, const float* pos) {
+    using Kind = script::CombatQuery::Kind;
+    if (!combat_on(Kind::Drop)) return true;
+    script::CombatQuery q;
+    q.kind = Kind::Drop;
+    q.value = -1;
+    q.item = *item;
+    q.num = {{"x", double(pos[0])}, {"y", double(pos[1])}, {"z", double(pos[2])}};
+    q.str = {{"name", host().item_name(*item)}};
+    const script::CombatDecision d = combat(q);
+    if (d.action == script::CombatDecision::Action::Suppress) return false;
+    if (d.action == script::CombatDecision::Action::Replace && d.item >= 0 && d.item < content::kRetailItems) *item = d.item;
+    return true;
+}
+
+// A pickup the player touched (PICKUPS.md section 7.3): what it would give, the "pickup" filter, the events.
+// The game's own grant runs unless a filter answered; then what the answer says is applied here.
+bool on_pickup(void* pickup) {
+    using Kind = script::CombatQuery::Kind;
+    if (WaitForSingleObject(g_started, 0) != WAIT_OBJECT_0 || g_scripts.empty()) return true;
+    script::Host& h = host();
+    std::int32_t* flags = h.flags();
+    auto cell = [](std::uintptr_t a) -> float& { return *reinterpret_cast<float*>(a); };
+    const int id = field<std::int32_t>(pickup, 0x134);
+    if (id < 0 || id >= content::kRetailItems) return true;
+    const std::uint32_t bless = std::uint32_t(flags[217]);
+    const double mag = *reinterpret_cast<std::int32_t*>(0x76f1e4 + std::uintptr_t(id) * 0xb8);
+    const char* what = "item";
+    double value = 1;
+    int ticks = 0;
+    if (id >= 0x78) {
+        if (h.stat(script::Host::Stat::Sp) >= 999999) return true;   // a full wallet: the game leaves the piece
+        what = "sp";
+        value = (std::max)(1.0, std::floor(mag * cell(0x76a5f8)));   // [H] without the difficulty's scale
+    } else if (id >= 0x42 && id <= 0x47) {
+        what = "hp";
+        value = bless & 0x20000 ? std::floor(mag * 1.5) : bless & 0x1000 ? std::floor(mag * 1.25) : mag;
+    } else if (id >= 0x48 && id <= 0x4d) {
+        static const char* const kBuff[] = {"atk_buff", "def_buff", "mp_buff"};
+        static const double kStep[] = {0.5, 0.3, 0.2};
+        what = kBuff[(id - 0x48) / 2];
+        value = kStep[(id - 0x48) / 2] * ((id - 0x48) % 2 + 1);
+        ticks = bless & 0x800000 ? 2200 : bless & 0x10 ? 2000 : 1800;
+    } else if (id == 0x72) {
+        what = "boost";
+        value = 30000;
+    } else if (id == 0x73) {
+        what = "oxygen";
+        value = 6000;
+    } else if (flags[id] >= 99) {
+        return true;   // as many as the game holds: it leaves the pickup
+    }
+    const std::string room = h.room();
+    float pos[3];
+    for (int k = 0; k < 3; ++k) pos[k] = field<float>(pickup, kActPos + 4 * std::size_t(k));
+    script::CombatDecision d;
+    if (combat_on(Kind::Pickup)) {
+        script::CombatQuery q;
+        q.kind = Kind::Pickup;
+        q.value = value;
+        q.item = id;
+        q.timer = ticks;
+        q.num = {{"x", double(pos[0])}, {"y", double(pos[1])}, {"z", double(pos[2])}};
+        q.str = {{"what", what}, {"name", h.item_name(id)}};
+        d = combat(q);
+    }
+    using Action = script::CombatDecision::Action;
+    const std::string w = what;
+    // What a Replace can set here; the buffs and a plain item keep the game's own grant.
+    const bool mine = d.action == Action::Suppress || (d.action == Action::Replace && (w == "sp" || w == "hp" || w == "boost" || w == "oxygen"));
+    if (d.action == Action::Replace && mine) {
+        value = std::clamp(d.value, 0.0, 999999.0);
+        if (w == "sp") add_sp(int(value));
+        else if (w == "hp") h.set_stat(script::Host::Stat::Hp, h.stat(script::Host::Stat::Hp) + value);
+        else cell(w == "boost" ? 0x76c1b4 : 0x76c1b8) = float(value);
+    }
+    {
+        events::Event e{events::Kind::ItemObtained};
+        e.item = id;
+        e.count = 1;
+        e.source = "pickup";
+        emit(e, room);
+    }
+    events::Event e{events::Kind::PickupCollected};
+    e.item = id;
+    e.source = what;
+    e.amount = d.action == Action::Suppress ? 0 : value;
+    e.count = ticks;
+    e.old_value = d.action == Action::Suppress ? 1 : 0;
+    std::memcpy(e.pos, pos, sizeof pos);
+    emit(e, room);
+    return !mine;
+}
+
 void on_frame() {
     if (WaitForSingleObject(g_started, 0) != WAIT_OBJECT_0 || g_scripts.empty()) return;
     using clock = std::chrono::steady_clock;
@@ -421,6 +597,11 @@ void on_frame() {
     const clock::time_point now = clock::now();
     const double dt = std::chrono::duration<double>(now - last).count();
     last = now;
+    if (!g_reload.empty()) {
+        const std::set<std::string> ids = std::move(g_reload);
+        g_reload.clear();
+        for (const std::string& id : ids) reload(id);
+    }
     for (auto& m : g_scripts) m->on_frame(dt);
 }
 

@@ -36,6 +36,9 @@ void set_exp_factor(float f);          // hooks.cpp: the game's own EXP rate, wh
 int on_damage(bool dealt, int value, const void* victim, const void* attacker);   // -> the damage that leaves the HP
 float on_exp(float value, int source, const void* victim);    // -> the EXP awarded; source 0 a kill, 1 a boss
 void on_kill(const void* victim, float* sp);                   // a monster died of the player's hit; *sp = the SP it gives, before the game's scale
+bool on_drop(int* item, const float* pos);                     // a kill's drop that passed its roll; false = nothing drops
+bool on_pickup(void* pickup);                                  // the player touched a pickup; false = it is taken and the game grants nothing
+bool spawn_pickup(int item, const float* pos);                 // hooks.cpp: a pickup thrown up as an enemy's drop is
 cleria::script::Host& host();          // host.cpp: the retail game as a script reaches it
 const std::map<std::string, std::pair<int, std::string>>& chests();   // the room's: script -> {box flag, object}
 void on_tick();                        // one step of the game's 60 Hz simulation ran (the game thread)
@@ -50,6 +53,19 @@ void on_saved(const char* file);       // a save was written
 cleria::Sidecar& sidecar();            // what the mods keep with this session's save
 bool session_pending();                // a new game / a load whose event was not delivered yet
 int room_ticks();                      // the steps since the room was entered
+// What the scripts share (the game thread):
+void on_input(const std::string& name, bool pad);    // ui.cpp: a key or a pad button went down, by SDL's name for it
+void request_reload(const std::string& mod);         // its script starts afresh at the next frame
+const std::vector<std::string>& log_tail();          // the last lines the scripts logged
+void log_script(const std::string& mod, const std::string& text);   // one of them, into cleriaore.log too
+cleria::script::Mod* window_mod();                   // the first mod with a window of its own open, or null
+// The stat modifiers (cleria.player.set_modifier), applied by hooks.cpp at each of the game's recomputes:
+// `stat` 0 max HP, 1 ATK, 2 DEF.
+void set_modifier(const std::string& mod, int stat, double add, double mul);
+std::pair<double, double> modifier(const std::string& mod, int stat);
+float modified(int stat, float base);                // (the game's + the mods' adds) x their muls, within the game's limits
+float base_stat(int stat);                           // hooks.cpp: the game's own value, before the mods
+void recompute_stats();                              // hooks.cpp: the game's recompute, now
 // For the overlay (ui.cpp, the game thread):
 std::vector<cleria::mods::Mod>& mod_list();                           // every mod found, in load order
 std::vector<std::unique_ptr<cleria::script::Mod>>& scripts();         // the started scripts

@@ -6,6 +6,8 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <windows.h>
+#include <shellapi.h>
 
 #include "cleria/content.hpp"
 #include "cleria/mod_events.hpp"
@@ -103,7 +105,8 @@ __declspec(naked) void warp_to_target() {
 }
 
 struct RetailHost : script::Host {
-    void log(const std::string& mod, const std::string& text) override { ore::log("[lua:%s] %s", mod.c_str(), text.c_str()); }
+    void log(const std::string& mod, const std::string& text) override { ore::log_script(mod, text); }
+    std::map<std::string, std::string> bus_;   // cleria.bus's process-wide values
     void notice(const std::string& mod, const std::string& head, const std::string& text) override {
         ore::log("[lua:%s] notice: %s %s", mod.c_str(), head.c_str(), text.c_str());
         ui_notice(head, text);
@@ -132,6 +135,65 @@ struct RetailHost : script::Host {
         return std::string(name, strnlen(name, 0x20));
     }
     std::filesystem::path data_dir(const std::string& mod) override { return dir() / "modsdata" / mod; }
+    // ---- API 7: the mods see each other, and the player's machine ----
+    int bus_publish(const std::string& from, const std::string& topic, const std::string& json_text) override {
+        int n = 0;
+        for (std::size_t i = 0; i < scripts().size(); ++i)   // by index: a handler may fail a mod
+            if (scripts()[i]->id() != from) n += scripts()[i]->on_bus(topic, json_text, from);
+        return n;
+    }
+    std::optional<std::string> bus_get(const std::string& key) override {
+        const auto it = bus_.find(key);
+        return it == bus_.end() ? std::nullopt : std::optional<std::string>(it->second);
+    }
+    void bus_set(const std::string& key, const std::string& json_text) override {
+        if (json_text.empty()) bus_.erase(key);
+        else if (bus_.size() < 4096 || bus_.count(key)) bus_[key] = json_text;
+    }
+    bool run_command(const std::string& name, const std::string& args) override {
+        for (auto& m : scripts())
+            if (m->ok() && m->has_command(name)) { m->command(name, args); return true; }
+        return false;
+    }
+    std::vector<std::string> all_commands() override {
+        std::vector<std::string> v;
+        for (auto& m : scripts())
+            if (m->ok())
+                for (const std::string& c : m->command_names()) v.push_back(c);
+        std::sort(v.begin(), v.end());
+        return v;
+    }
+    std::vector<std::string> log_lines(int n) override {
+        const auto& t = log_tail();
+        const std::size_t k = (std::min)(std::size_t((std::max)(n, 0)), t.size());
+        return std::vector<std::string>(t.end() - std::ptrdiff_t(k), t.end());
+    }
+    bool request_reload(const std::string& mod) override { ore::request_reload(mod); return true; }
+    bool set_clipboard(const std::string& text) override {
+        if (!ImGui::GetCurrentContext()) return false;
+        ImGui::SetClipboardText(text.c_str());
+        return true;
+    }
+    // Only reached from a page's button (the mod layer checks it): the player pressed it. A web address only.
+    bool open_url(const std::string& mod, const std::string& url) override {
+        ore::log("[lua:%s] opens %s", mod.c_str(), url.c_str());
+        if (url.rfind("https://", 0) != 0 && url.rfind("http://", 0) != 0) return false;
+        return reinterpret_cast<INT_PTR>(ShellExecuteA(nullptr, "open", url.c_str(), nullptr, nullptr, SW_SHOWNORMAL)) > 32;
+    }
+    // What the game is doing, as far as the retail host tells: its own menus, book and dialogs are "cutscene"
+    // here when they hold the world, "play" otherwise.
+    std::string game_state() override {
+        if (!in_game()) return "title";
+        if (ui_panel_open()) return "panel";
+        if (const script::Mod* m = window_mod(); m && m->window()->pause) return "window";
+        if (at<float>(kHp) < 1) return "gameover";
+        return frozen() ? "cutscene" : "play";
+    }
+    bool key_down(const std::string& name) override { return ui_key_down(name, false); }
+    bool pad_down(const std::string& name) override { return ui_key_down(name, true); }
+    bool key_known(const std::string& name, bool pad) override { return ui_key_known(name, pad); }
+    void set_modifier(const std::string& mod, int stat, double add, double mul) override { ore::set_modifier(mod, stat, add, mul); }
+    std::pair<double, double> modifier(const std::string& mod, int stat) override { return ore::modifier(mod, stat); }
     std::vector<ModInfo> mod_list() override {
         std::vector<ModInfo> out;
         for (const mods::Mod& m : ore::mod_list())
@@ -278,9 +340,11 @@ struct RetailHost : script::Host {
         o.weapon_tier = flags()[kFlagWeapon];
         o.exp = at<float>(kExp);
         o.exp_next = o.level < 60 ? at<float>(kExpNext) : 0.0;
-        o.atk = o.base_atk = at<float>(kAtk);       // no modifier on the retail game yet: the two are one
-        o.def = o.base_def = at<float>(kDef);
-        o.base_max_hp = o.max_hp;
+        o.atk = at<float>(kAtk);
+        o.def = at<float>(kDef);
+        o.base_max_hp = base_stat(0);               // the game's own, before the mods' modifiers
+        o.base_atk = base_stat(1);
+        o.base_def = base_stat(2);
         o.mp = at<float>(kMp);
         o.max_mp = at<float>(kMaxMp);
         o.boost = at<float>(kBoost);
@@ -290,6 +354,12 @@ struct RetailHost : script::Host {
         for (int k = 0; k < 3; ++k) o.buff_timer[k] = (&at<std::int32_t>(kBuffTimers))[k];
         std::memcpy(o.pos, at<char*>(kPlayer) + 0x50, sizeof o.pos);   // the actor's position
         return true;   // luck is not read (0 in every game)
+    }
+    // An own value for the pickup is CleriaCore's: the retail pickup gives what its item gives.
+    bool spawn_pickup(int item, float x, float y, float z, double) override {
+        if (!in_game() || item < 0 || item >= content::kRetailItems) return false;
+        const float pos[3] = {x, y, z};
+        return ore::spawn_pickup(item, pos);
     }
     void warp(int index) override {
         if (!in_game() || index < 0 || index >= 24) return;

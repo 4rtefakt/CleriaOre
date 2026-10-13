@@ -165,8 +165,132 @@ __declspec(naked) void hook_kill() {
         jmp  dword ptr [g_kill]
     }
 }
+// ---- pickups (CleriaCore's item_re/PICKUPS.md): the drops of a kill, a pickup taken ----------------------
+//   FUN_00587010(ECX bag, EDX n; 16 stack words, the caller pops)   throws up `count` pickups of the bag's items;
+//                             an enemy's drops are its calls from FUN_00478510 (0x478510..0x4793da), one item each
+//   0x58613f  mov ecx, [ebx+0x134]    FUN_00585ff0 (EBX = the pickup): the player touched it, its grant follows
+//   0x58671d                          ... and the tail every grant ends in: the effect, the sound, the pickup gone
+constexpr std::uintptr_t kSpawn = 0x587010, kTouch = 0x58613f, kTouchTail = 0x58671d;
+constexpr std::uintptr_t kDropsFirst = 0x478510, kDropsLast = 0x4793da;
+constexpr std::uint8_t kSpawnBytes[] = {0x55, 0x8b, 0xec, 0x6a, 0xff, 0x68, 0x38, 0x78, 0x67, 0x00, 0x64, 0xa1, 0x00, 0x00, 0x00, 0x00};
+constexpr std::uint8_t kTouchBytes[] = {0x8b, 0x8b, 0x34, 0x01, 0x00, 0x00, 0xf3, 0x0f, 0x10, 0x05, 0x38, 0xd4, 0x6b, 0x00, 0xc7, 0x45};
+void* g_spawn = nullptr;
+void* g_touch = nullptr;
+int g_answer = 0;   // a hook's C function's answer, read after the registers are back
+
+// 1 = nothing drops. A filter's other item is written into the bag (the caller's one id).
+int __cdecl drop(int* bag, int n, std::uintptr_t from, const float* pos) {
+    if (n != 1 || !bag || !pos || from < kDropsFirst || from >= kDropsLast) return 0;
+    return on_drop(bag, pos) ? 0 : 1;
+}
+int __cdecl touch(void* pickup) { return on_pickup(pickup) ? 0 : 1; }   // 1 = taken, the game's grant is skipped
+
+__declspec(naked) void hook_spawn() {
+    __asm {
+        ORE_ENTER
+        push dword ptr [ebx + 60]       // its position (the sixth stack word)
+        push dword ptr [ebx + 36]       // who calls
+        push dword ptr [ebx + 20]       // EDX: the bag's length
+        push dword ptr [ebx + 24]       // ECX: the bag
+        call drop
+        add  esp, 16
+        mov  g_answer, eax
+        ORE_LEAVE
+        cmp  g_answer, 0
+        jne  no_drop
+        jmp  dword ptr [g_spawn]
+    no_drop:
+        xor  eax, eax
+        ret                             // the caller pops its words
+    }
+}
+__declspec(naked) void hook_touch() {
+    __asm {
+        ORE_ENTER
+        push dword ptr [ebx + 16]       // the game's EBX: the pickup
+        call touch
+        add  esp, 4
+        mov  g_answer, eax
+        ORE_LEAVE
+        cmp  g_answer, 0
+        jne  skip_grant
+        jmp  dword ptr [g_touch]
+    skip_grant:
+        mov  dword ptr [ebp - 0x14], 0x58          // what the skipped grant sets first: the sound,
+        mov  dword ptr [ebp - 0x18], 0x3f800000    // and 1.0
+        mov  eax, kTouchTail
+        jmp  eax
+    }
+}
+// cleria.game.spawn_pickup: one pickup of `*id` thrown up from `pos` with an enemy drop's arguments.
+__declspec(naked) void __cdecl spawn_one(int* /*id*/, const float* /*pos*/) {
+    __asm {
+        push ebp
+        mov  ebp, esp
+        push 0
+        push 0
+        push 0x40490fdb                 // the yaw: -pi .. pi
+        push 0xc0490fdb
+        push 0x3d851eb8                 // up: 0.04 .. 0.065
+        push 0x3d23d70a
+        push 0x3d3851ec                 // across: 0.01 .. 0.045
+        push 0x3c23d70a
+        push 0                          // no spin
+        push 0x3f666666                 // size 0.9
+        push dword ptr [ebp + 12]       // pos
+        push 5                          // flags: a pickup
+        push 1
+        push 2
+        push 1                          // one
+        push 0x304                      // the item icons
+        mov  ecx, dword ptr [ebp + 8]
+        mov  edx, 1
+        mov  eax, kSpawn
+        call eax
+        add  esp, 0x40
+        pop  ebp
+        ret
+    }
+}
+
 #undef ORE_ENTER
 #undef ORE_LEAVE
+
+// ---- the stat recompute (cleria.player.set_modifier) -------------------------------------------------
+// FUN_00420c40 rebuilds the derived stats into the record 0x76a72c (max HP +0, ATK +0x10, DEF +0x14), the parts
+// its dirty bits 0x76b914 ask for, and copies the record into the player's actor (+0x94). The mods' modifiers
+// go on top after each run; before a run the game's own values are put back, so a part it does not rebuild is
+// not modified twice.
+constexpr std::uintptr_t kRecompute = 0x420c40, kStats = 0x76a72c, kDirty = 0x76b914, kPlayerActor = 0x74c09c;
+constexpr std::uint8_t kRecomputeBytes[] = {0x53, 0x8b, 0xdc, 0x83, 0xec, 0x08, 0x83, 0xe4, 0xf8, 0x83, 0xc4, 0x04, 0x55, 0x8b, 0x6b, 0x04};
+constexpr std::size_t kStatAt[3] = {0x00, 0x10, 0x14};
+using RecomputeFn = void(__cdecl*)();
+RecomputeFn g_recompute = nullptr;
+float g_stat_base[3] = {0, 0, 0}, g_stat_set[3] = {0, 0, 0};
+bool g_stat_on = false;   // g_stat_set is what the record holds
+
+void __cdecl hook_recompute() {
+    float* rec = reinterpret_cast<float*>(kStats);
+    auto stat = [&](int k) -> float& { return *reinterpret_cast<float*>(kStats + kStatAt[k]); };
+    if (g_stat_on)
+        for (int k = 0; k < 3; ++k)
+            if (stat(k) == g_stat_set[k]) stat(k) = g_stat_base[k];
+    g_recompute();
+    bool any = false;
+    for (int k = 0; k < 3; ++k) {
+        g_stat_base[k] = stat(k);
+        g_stat_set[k] = modified(k, g_stat_base[k]);
+        any = any || g_stat_set[k] != g_stat_base[k];
+    }
+    if (!any && !g_stat_on) return;
+    g_stat_on = any;
+    for (int k = 0; k < 3; ++k) stat(k) = g_stat_set[k];
+    if (rec[1] > rec[0]) rec[1] = rec[0];   // a lowered max HP takes the HP above it
+    if (char* actor = *reinterpret_cast<char**>(kPlayerActor)) {
+        for (int k = 0; k < 3; ++k) std::memcpy(actor + 0x94 + kStatAt[k], &stat(k), 4);
+        if (*reinterpret_cast<float*>(actor + 0x98) > rec[0]) std::memcpy(actor + 0x98, &rec[0], 4);
+    }
+}
 
 // ---- the game loop (FUN_00410440 runs FUN_004106e0 once per 60 Hz step, then renders) --------------
 using StepFn = void(__fastcall*)(char active, char arg);   // FUN_004106e0: `active` = a real step, 0 = an idle one
@@ -386,6 +510,8 @@ const Site kSites[] = {
     SITE(kDealt, kDealtBytes, &hook_dealt, &g_dealt),     SITE(kTaken, kTakenBytes, &hook_taken, &g_taken),
     SITE(kExpKill, kExpKillBytes, &hook_exp_kill, &g_exp_kill), SITE(kKill, kKillBytes, &hook_kill, &g_kill),
     SITE(kExpBoss, kExpAddBytes, &hook_exp_boss, &g_exp_boss), SITE(kExpOther, kExpAddBytes, &hook_exp_other, &g_exp_other),
+    SITE(kRecompute, kRecomputeBytes, &hook_recompute, &g_recompute),
+    SITE(kSpawn, kSpawnBytes, &hook_spawn, &g_spawn),       SITE(kTouch, kTouchBytes, &hook_touch, &g_touch),
 };
 #undef SITE
 
@@ -411,6 +537,23 @@ bool install_hooks() {
 }
 
 bool hooked() { return g_hooked; }
+
+bool spawn_pickup(int item, const float* pos) {
+    if (!g_hooked) return false;
+    int id = item;
+    spawn_one(&id, pos);
+    return true;
+}
+
+float base_stat(int stat) {
+    if (!g_hooked || stat < 0 || stat > 2) return 0;
+    return g_stat_on ? g_stat_base[stat] : *reinterpret_cast<float*>(kStats + kStatAt[stat]);
+}
+void recompute_stats() {
+    if (!g_hooked || !*reinterpret_cast<void**>(kPlayerActor)) return;
+    *reinterpret_cast<std::uint32_t*>(kDirty) |= 0x75;
+    reinterpret_cast<RecomputeFn>(kRecompute)();   // through the hook
+}
 
 void set_exp_factor(float f) {
     if (g_hooked) *reinterpret_cast<float*>(kExpRate) = f;
