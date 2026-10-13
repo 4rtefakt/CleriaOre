@@ -118,3 +118,38 @@ The notes themselves are gathered in the `yso` repository.
   `S_nnnn` room to another. The request carries a scene id only: which door asked is not known there, so
   `index` is -1 and `door` empty. Driven: `goto_room("S_1001")` sent to S_1099 by the filter; a change to
   S_2099 refused, the game staying in play.
+
+## What a hit carries
+
+- **The object that hits is the appliers' first argument** (ebx in `FUN_004fbb40`, kept at `[ebp-0x20]`; edi in
+  `FUN_004faf20`): its ATK at +0xa4, the hit's power at +0xfc (the formula's added term, xmm2), a floor at
+  +0x100 (xmm3), the damage class at +0x109. A "damage" query now carries `atk`, `power`, `class`, the
+  victim's `hp` and `max_hp`, and for the monster of the two `cast`, `level` and `actor`.
+
+## The blessing shop
+
+- **A blessing's effect** is the script VM's 0xAF. At `0x568d5d` its index is in eax, before the jump table
+  (34 entries) that gives it; every case ends at `0x5664c9`. Hooked there: `blessing_bought`, and the shop
+  filter's Buy answer (another blessing's effect, or none). The SP was taken earlier by the script's own
+  flag operations, so the price is not known at this site, and the Price, Row and Owned queries are not
+  asked. Driven in S_2013: "Strengthen current leggings" bought at the statue, reported as blessing 8 when
+  the "Your prayers have been answered" box was dismissed.
+
+## A kill's EXP
+
+- The kill block of `FUN_004fbb40` builds the award as: the monster's base (+0xb0) scaled by the levels' gap
+  (`FUN_004fa2f0`), times the EXP rate `0x76a5fc`, times the difficulty's factor (`[0x6bd464]` when
+  `0x76bb58` is set, `[0x6bd580]` when `0x76bc48` is), floored at 1; then times the kill chain's factor,
+  `1 + [0x76c1a8] * [0x6bd084]`. The "exp" query carries these as `rate`, `factor` (the mods' own share of
+  the rate), `diff_mult` and `chain`.
+
+## Bullets
+
+- **The bullet factory** `FUN_00593550` is `fastcall(ecx owner, edx kind)` with 17 stack words that the caller
+  pops: the effect id, &pos, &dir, f0..f12 (speed, accel, gravity, power, knock, three ints, five floats) and
+  an out pointer. Hooked at its entry: a bullet whose owner is the player's actor raises `player_bullet`.
+  Driven as Hugo in S_1099: kind 2, effect 130, speed 0.3, the third int 1, from 0.4 under the player's
+  height, three shots three events.
+- `world.show_bullet` calls the factory again with the player as owner and no power or knock. Driven: five
+  copies of a recorded shot flew side by side, and raised no event of their own. A shown bullet is still the
+  player's, so where it meets a monster it lands a hit of 0.

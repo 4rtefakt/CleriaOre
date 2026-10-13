@@ -74,6 +74,12 @@ int __fastcall hook_scene(int scene, int force) {
     const int to = exit_filter(scene);
     return to ? g_scene(to, force) : int(0x80004005);   // refused, as while another change is pending
 }
+// The script VM's 0xAF, a blessing's effect (menu_re/BLESSING_SHOP.md): at 0x568d5d the blessing's index is in eax,
+// before the jump table that gives it. Its SP was taken earlier, by the script's own flag operations.
+//   0x568d5d  cmp eax, 0x21 ; ja <throw>
+constexpr std::uintptr_t kBless = 0x568d5d, kVmNext = 0x5664c9;   // kVmNext: where every case of 0xAF ends
+constexpr std::uint8_t kBlessBytes[] = {0x83, 0xf8, 0x21, 0x0f, 0x87, 0xb7, 0x4d, 0x00, 0x00};
+void* g_bless = nullptr;
 // FUN_0045a2f0, GoActor's update (its vtable's third entry): a jump to the actor's handler, by its index at +0x120.
 // An actor a mod holds is not updated: it stays where and as it was put. It is still drawn: a handler hands its
 // actor to the frame's draw list itself, so the hook does that part (FUN_00473540) in the handler's place.
@@ -115,9 +121,9 @@ void* g_exp_boss = nullptr;
 void* g_exp_other = nullptr;
 float g_exp_value = 0;   // the award a hook hands to on_exp and takes back
 
-int __cdecl dealt(int value, const void* victim, const void* attacker) { return on_damage(true, value, victim, attacker); }
-int __cdecl part(int value, const void* victim) { return on_part_damage(value, victim); }
-int __cdecl taken(int value, const void* victim, const void* attacker) { return on_damage(false, value, victim, attacker); }
+int __cdecl dealt(int value, const void* victim, const void* attacker, const void* source) { return on_damage(true, value, victim, attacker, source); }
+int __cdecl part(int value, const void* victim, const void* source) { return on_part_damage(value, victim, source); }
+int __cdecl taken(int value, const void* victim, const void* attacker) { return on_damage(false, value, victim, attacker, attacker); }
 void __cdecl exp_award(const void* victim, int source) { g_exp_value = on_exp(g_exp_value, source, victim); }
 void __cdecl killed(const void* victim, float* sp) { on_kill(victim, sp); }
 
@@ -129,11 +135,12 @@ void __cdecl killed(const void* victim, float* sp) { on_kill(victim, sp); }
 __declspec(naked) void hook_dealt() {
     __asm {
         ORE_ENTER
+        push dword ptr [ebp - 0x20]     // what hit (the function's first argument)
         push esi                        // the attacker
         push edi                        // the victim
         push dword ptr [ebp - 0x1c]
         call dealt
-        add  esp, 12
+        add  esp, 16
         mov  dword ptr [ebp - 0x1c], eax
         ORE_LEAVE
         jmp  dword ptr [g_dealt]        // mov ecx, [ebp-0x1c] ; ...
@@ -142,13 +149,74 @@ __declspec(naked) void hook_dealt() {
 __declspec(naked) void hook_part() {
     __asm {
         ORE_ENTER
+        push edi                        // what hit
         push esi                        // the victim
         push eax
         call part
-        add  esp, 8
+        add  esp, 12
         mov  dword ptr [ebx + 28], eax  // pushad's eax
         ORE_LEAVE
         jmp  dword ptr [g_part]
+    }
+}
+// FUN_00593550, the bullet factory (ai_spec/BULLETS.md §1.1): fastcall(ecx owner, edx kind; 17 stack words: the
+// effect id, &pos, &dir, f0..f12, out), the caller pops them.
+constexpr std::uintptr_t kBullet = 0x593550;
+constexpr std::uint8_t kBulletBytes[] = {0x53, 0x8b, 0xdc, 0x83, 0xec, 0x08, 0x83, 0xe4, 0xf8, 0x83, 0xc4, 0x04, 0x55, 0x8b, 0x6b, 0x04};
+void* g_bullet = nullptr;
+bool g_showing = false;                 // a bullet of show_bullet is being made: not one of the player's own
+void __cdecl bullet_made(const void* owner, int kind, const std::uint32_t* args) {
+    if (!g_showing) on_bullet(owner, kind, args);
+}
+__declspec(naked) void hook_bullet() {
+    __asm {
+        ORE_ENTER
+        lea  eax, [ebx + 40]            // past pushfd, pushad and the return address: the stack words
+        push eax
+        push edx
+        push ecx
+        call bullet_made
+        add  esp, 12
+        ORE_LEAVE
+        jmp  dword ptr [g_bullet]
+    }
+}
+__declspec(naked) void* __cdecl fire_bullet(void* /*owner*/, int /*kind*/, const std::uint32_t* /*17 words*/) {
+    __asm {
+        push ebp
+        mov  ebp, esp
+        push esi
+        mov  esi, dword ptr [ebp + 16]
+        mov  ecx, 16
+    next:
+        push dword ptr [esi + ecx * 4]
+        dec  ecx
+        jns  next
+        mov  ecx, dword ptr [ebp + 8]
+        mov  edx, dword ptr [ebp + 12]
+        mov  eax, kBullet
+        call eax
+        add  esp, 0x44
+        pop  esi
+        pop  ebp
+        ret
+    }
+}
+int __cdecl bless(int index) { return on_blessing(index); }
+__declspec(naked) void hook_bless() {
+    __asm {
+        ORE_ENTER
+        push eax
+        call bless
+        add  esp, 4
+        mov  dword ptr [ebx + 28], eax  // pushad's eax
+        ORE_LEAVE
+        cmp  eax, -1
+        je   no_effect
+        jmp  dword ptr [g_bless]
+    no_effect:
+        mov  eax, kVmNext
+        jmp  eax
     }
 }
 __declspec(naked) void hook_taken() {
@@ -570,6 +638,7 @@ const Site kSites[] = {
     SITE(kExpBoss, kExpAddBytes, &hook_exp_boss, &g_exp_boss), SITE(kExpOther, kExpAddBytes, &hook_exp_other, &g_exp_other),
     SITE(kRecompute, kRecomputeBytes, &hook_recompute, &g_recompute), SITE(kPart, kPartBytes, &hook_part, &g_part),
     SITE(kActorUpdate, kActorUpdateBytes, &hook_actor_update, &g_actor_update), SITE(kScene, kSceneBytes, &hook_scene, &g_scene),
+    SITE(kBless, kBlessBytes, &hook_bless, &g_bless),     SITE(kBullet, kBulletBytes, &hook_bullet, &g_bullet),
     SITE(kSpawn, kSpawnBytes, &hook_spawn, &g_spawn),       SITE(kTouch, kTouchBytes, &hook_touch, &g_touch),
 };
 #undef SITE
@@ -612,6 +681,22 @@ void recompute_stats() {
     if (!g_hooked || !*reinterpret_cast<void**>(kPlayerActor)) return;
     *reinterpret_cast<std::uint32_t*>(kDirty) |= 0x75;
     reinterpret_cast<RecomputeFn>(kRecompute)();   // through the hook
+}
+
+// (kind, effect, pos, dir, speed, accel, gravity, the three ints, the five floats): the player's bullet again, with
+// no power and no knock. It is the player's, so it still meets the monsters, for a hit of 0.
+bool show_bullet(const double* n) {
+    void* player = g_hooked ? *reinterpret_cast<void**>(kPlayerActor) : nullptr;
+    if (!player || int(n[0]) == 0xf) return false;                               // (0xf is a bomb, not a bullet)
+    const float pos[3] = {float(n[2]), float(n[3]), float(n[4])}, dir[3] = {float(n[5]), float(n[6]), float(n[7])};
+    auto bits = [](double v) { const float f = float(v); std::uint32_t u; std::memcpy(&u, &f, 4); return u; };
+    const std::uint32_t args[17] = {std::uint32_t(int(n[1])), reinterpret_cast<std::uint32_t>(pos), reinterpret_cast<std::uint32_t>(dir),
+                                    bits(n[8]), bits(n[9]), bits(n[10]), 0, 0, std::uint32_t(int(n[11])), std::uint32_t(int(n[12])),
+                                    std::uint32_t(int(n[13])), bits(n[14]), bits(n[15]), bits(n[16]), bits(n[17]), bits(n[18]), 0};
+    g_showing = true;
+    fire_bullet(player, int(n[0]), args);
+    g_showing = false;
+    return true;
 }
 
 void set_exp_factor(float f) {

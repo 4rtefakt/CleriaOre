@@ -33,8 +33,14 @@ bool hooked();                         // hooks.cpp: the hooks are in (this proc
 bool game_file(const char* path, std::vector<std::uint8_t>& out);
 void set_exp_factor(float f);          // hooks.cpp: the game's own EXP rate, which every award is multiplied by
 // Combat, asked by hooks.cpp as the game applies it (the game thread). An actor is the game's own record.
-int on_damage(bool dealt, int value, const void* victim, const void* attacker);   // -> the damage that leaves the HP
-int on_part_damage(int value, const void* victim);                               // the same for a hit on a map object (a boss's part)
+// -> the damage that leaves the HP. `source` is the object that hit (the formula's first argument: its ATK at +0xa4,
+// the hit's power at +0xfc, its class at +0x109); for a hit dealt, `attacker` is the player it is credited to.
+int on_damage(bool dealt, int value, const void* victim, const void* attacker, const void* source);
+// A bullet is being made (FUN_00593550): `args` are its 17 stack words (the effect, &pos, &dir, f0..f12, out).
+void on_bullet(const void* owner, int kind, const std::uint32_t* args);
+bool show_bullet(const double* n);                                               // hooks.cpp: the 19 numbers of a player_bullet event, as a bullet that hurts nobody
+int on_blessing(int index);                                                      // a blessing's effect is about to be given: -> the index, -1 = none
+int on_part_damage(int value, const void* victim, const void* source);           // the same for a hit on a map object (a boss's part)
 float on_exp(float value, int source, const void* victim);    // -> the EXP awarded; source 0 a kill, 1 a boss
 void on_kill(const void* victim, float* sp);                   // a monster died of the player's hit; *sp = the SP it gives, before the game's scale
 bool on_drop(int* item, const float* pos);                     // a kill's drop that passed its roll; false = nothing drops

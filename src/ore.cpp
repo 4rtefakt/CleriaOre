@@ -48,6 +48,7 @@ std::string g_state;                   // game.state() at the last tick, for sta
 std::map<std::string, std::array<std::pair<double, double>, 3>> g_stat_mods;   // per mod: {add, mul} of max HP, ATK, DEF
 std::set<std::string> g_pause;         // the mods that hold the game
 double g_boss_bonus = 0;               // cleria.combat.boss_bonus
+float g_exp_factor = 1.0f;             // the mods' exp_factor product, as last written into the game's rate
 std::map<std::string, std::array<double, 2>> g_tune;   // per mod: the factors of the player's speed and jump
 constexpr std::uintptr_t kBossGaugeOwner = 0x6d5fd8;   // the boss gauge's widget +4: its owner's instance id (actor +0x14), 0 = no gauge
 std::map<std::string, double> g_speed; // a mod's factor of the game's speed
@@ -388,6 +389,45 @@ script::WorldDecision world_filter(const script::WorldQuery& q) {
     }
     return {};
 }
+// A blessing bought reaches its effect: the shop filters' Buy query (another blessing's effect, or none), then
+// blessing_bought, whatever they said. The price is not known here (0).
+// The player's bullet as it is made: player_bullet, with what another screen needs to show the same one.
+void on_bullet(const void* owner, int kind, const std::uint32_t* a) {
+    if (WaitForSingleObject(g_started, 0) != WAIT_OBJECT_0 || g_scripts.empty()) return;
+    if (!owner || owner != *reinterpret_cast<void**>(0x74c09c) || kind == 0xf) return;
+    auto f = [&](int i) { float v; std::memcpy(&v, &a[i], 4); return double(v); };
+    const float* pos = reinterpret_cast<const float*>(a[1]);
+    const float* dir = reinterpret_cast<const float*>(a[2]);
+    emit(events::Event::named("player_bullet").with("kind", kind).with("effect", int(a[0]))
+             .with("x", pos[0]).with("y", pos[1]).with("z", pos[2]).with("dx", dir[0]).with("dy", dir[1]).with("dz", dir[2])
+             .with("speed", f(3)).with("accel", f(4)).with("gravity", f(5))
+             .with("a", double(std::int32_t(a[8]))).with("b", double(std::int32_t(a[9]))).with("c", double(std::int32_t(a[10])))
+             .with("d", f(11)).with("e", f(12)).with("f", f(13)).with("g", f(14)).with("h", f(15)),
+         host().room());
+}
+int on_blessing(int index) {
+    if (WaitForSingleObject(g_started, 0) != WAIT_OBJECT_0 || g_scripts.empty()) return index;
+    const std::string room = host().room();
+    ShopQuery q;
+    q.kind = ShopQuery::Kind::Buy;
+    q.sub = 0xaf;
+    q.index = index;
+    GrantDecision d;
+    for (auto& m : g_scripts) {
+        if (!m->ok() || !m->has_shop_filter()) continue;
+        d = m->shop_filter(q, room);
+        if (d.action != GrantDecision::Action::Pass) break;
+    }
+    const bool off = d.action == GrantDecision::Action::Suppress;
+    log("[shop] blessing %d bought%s", index, off ? " (effect suppressed)" : "");
+    events::Event e;
+    e.kind = events::Kind::BlessingBought;
+    e.index = index;
+    e.old_value = off ? 1 : 0;
+    emit(e, room);
+    if (off) return -1;
+    return d.action == GrantDecision::Action::Replace && d.index >= 0 && d.index <= 0x21 ? d.index : index;
+}
 void emit_named(const events::Event& e) { emit(e, host().room()); }
 void on_tick() {
     if (WaitForSingleObject(g_started, 0) != WAIT_OBJECT_0 || (g_scripts.empty() && !content_on())) return;
@@ -433,6 +473,7 @@ void on_tick() {
     const int level = int(h.stat(script::Host::Stat::Level));
     for (auto& m : g_scripts)
         if (m->ok()) factor *= m->exp_factor(level);
+    g_exp_factor = factor;
     set_exp_factor(factor);
     for (auto& m : g_scripts) m->on_tick();
 }
@@ -486,7 +527,7 @@ GrantDecision on_grant(GrantQuery q) {
 }
 
 // A hit's final damage. Dealt: the player's on a monster. Taken: on the player.
-int on_damage(bool dealt, int value, const void* victim, const void* attacker) {
+int on_damage(bool dealt, int value, const void* victim, const void* attacker, const void* source) {
     using Kind = script::CombatQuery::Kind;
     if (!victim) return value;
     const int vcast = field<std::int32_t>(victim, kActCast);
@@ -503,11 +544,17 @@ int on_damage(bool dealt, int value, const void* victim, const void* attacker) {
     script::CombatQuery q;
     q.kind = Kind::Damage;
     q.value = value;
-    q.num = {{"formula", double(value)}, {"def", double(field<float>(victim, kActDef))}};   // [H] the formula's own result is not kept apart
-    if (dealt) {
-        q.num.push_back({"cast", double(vcast)});
-        q.num.push_back({"level", double(field<std::int32_t>(victim, kActLevel))});
-        q.num.push_back({"atk", double(field<float>(attacker, kActAtk))});
+    // [H] the formula's own result is not kept apart. What hit carries the formula's inputs; the monster of the two
+    // (the victim of a hit dealt, the hitter of one taken, when that is an actor) gives cast and level.
+    q.num = {{"formula", double(value)}, {"def", double(field<float>(victim, kActDef))}, {"hp", double(field<float>(victim, 0x98))},
+             {"max_hp", double(field<float>(victim, 0x94))}, {"atk", source ? double(field<float>(source, kActAtk)) : 0.0},
+             {"power", source ? double(field<float>(source, 0xfc)) : 0.0}};
+    if (source) q.num.push_back({"class", double(field<std::uint8_t>(source, 0x109))});
+    const void* monster = dealt ? victim : (attacker && field<std::uint32_t>(attacker, 0) == 0x69ba3c ? attacker : nullptr);   // GoActor's vtable
+    if (monster) {
+        q.num.push_back({"cast", double(field<std::int32_t>(monster, kActCast))});
+        q.num.push_back({"level", double(field<std::int32_t>(monster, kActLevel))});
+        q.num.push_back({"actor", double(field<std::int32_t>(monster, 0x14))});
     }
     q.str = {{"dir", dealt ? "dealt" : "taken"}};
     return pooled(int(answered(combat(q), value, 999999.0)));
@@ -515,7 +562,7 @@ int on_damage(bool dealt, int value, const void* victim, const void* attacker) {
 
 // The player's hit on a map object (class 0xd: a boss's part, a breakable), priced by FUN_004faf20: the "damage"
 // filter with no cast, then the mods' pooled damage while the boss gauge is up.
-int on_part_damage(int value, const void* victim) {
+int on_part_damage(int value, const void* victim, const void* source) {
     using Kind = script::CombatQuery::Kind;
     if (!victim) return value;
     int d = value;
@@ -524,7 +571,8 @@ int on_part_damage(int value, const void* victim) {
         q.kind = Kind::Damage;
         q.value = value;
         q.num = {{"formula", double(value)}, {"def", double(field<float>(victim, kActDef))}, {"hp", double(field<float>(victim, 0x98))},
-                 {"max_hp", double(field<float>(victim, 0x94))}};
+                 {"max_hp", double(field<float>(victim, 0x94))}, {"atk", source ? double(field<float>(source, kActAtk)) : 0.0},
+                 {"power", source ? double(field<float>(source, 0xfc)) : 0.0}};
         q.str = {{"dir", "dealt"}};
         d = int(answered(combat(q), value, 999999.0));
     }
@@ -543,7 +591,15 @@ float on_exp(float value, int source, const void* victim) {
     script::CombatQuery q;
     q.kind = Kind::Exp;
     q.value = value;
-    q.num = {{"level", host().stat(script::Host::Stat::Level)}};
+    // The kill's award as the game builds it (FUN_004fbb40's kill block): the base, scaled by the levels' gap, times
+    // the EXP rate 0x76a5fc (the game's own times the mods' exp_factor, which lives there too), the difficulty's
+    // factor and the kill chain's.
+    auto mem = [](std::uintptr_t a) { return *reinterpret_cast<const float*>(a); };
+    auto flag = [](std::uintptr_t a) { return *reinterpret_cast<const std::int32_t*>(a) != 0; };
+    const double factor = g_exp_factor > 0 ? g_exp_factor : 1.0;
+    q.num = {{"level", host().stat(script::Host::Stat::Level)}, {"rate", double(mem(0x76a5fc)) / factor}, {"factor", factor},
+             {"diff_mult", flag(0x76bc48) ? double(mem(0x6bd580)) : flag(0x76bb58) ? double(mem(0x6bd464)) : 1.0},
+             {"chain", 1.0 + double(*reinterpret_cast<const std::int32_t*>(0x76c1a8)) * double(mem(0x6bd084))}};
     if (victim) {
         q.num.push_back({"cast", double(field<std::int32_t>(victim, kActCast))});
         q.num.push_back({"enemy_level", double(field<std::int32_t>(victim, kActLevel))});

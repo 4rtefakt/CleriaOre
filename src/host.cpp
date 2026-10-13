@@ -677,6 +677,7 @@ struct RetailHost : script::Host {
             if (n.size() > 7 && std::isfinite(n[7]) && n[7] >= 0 && n[7] < 269) in<std::int32_t>(a, 0x97c) = int(n[7]);
             return true;
         }
+        if (op == "show_bullet") return alive && n.size() >= 19 && ore::show_bullet(n.data());
         if (op == "tune") {                                                       // (key, factor): speed 0, jump 1; the rest is not backed
             const int k = int(arg(0, -1));
             if (k < 0 || k > 1) return false;

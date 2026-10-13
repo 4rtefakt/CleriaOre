@@ -26,7 +26,7 @@ What works:
   a kill's and a boss's EXP, `"sp"` on a kill's SP, `"drop"` on a kill's drops (suppress, or another item),
   `"pickup"` on a pickup taken (suppress; another value for gold, healing, the Boost and Air seeds), and the
   `enemy_killed` and `pickup_collected` events; `game.spawn_pickup`. A query carries less than CleriaCore's:
-  no `power`, `class` or separate `formula` for a hit, no intermediate steps for EXP, no `cast`, `slot` or
+  no separate `formula` for a hit, no intermediate steps for EXP, no `cast`, `slot` or
   `chance` for a drop; a pickup has no value of its own.
 - `player.set_modifier` (max HP, ATK, DEF), on top of each of the game's stat recomputes.
 - API 7's host side: a mod's own window (`cleria.ui.window`, `message`, `choose`), `p:text`, `p:progress`,
@@ -65,12 +65,14 @@ hooked and the log says so.
 - Puppets (`world.puppet`, `set_puppet`, `remove_puppet`, `prop`: any of the three characters or a cast's
   sprite as an actor the mod moves; not `hittable`, `target`, `glow`, `aura`), `world.form` (the numbers and
   `ai`; not the look), `world.snapshot` and `world.apply`, `world.spawn` for any monster cast.
+- Bullets: `player_bullet` for each of the player's, and `world.show_bullet`, the same bullet again for show.
+- The blessing shop: `blessing_bought`, and `cleria.shop.add_filter`'s Buy answer (another effect, or none).
 - The world's filters: `"spawn"` (the multipliers and "suppress"; not another cast or level) with
   `enemy_spawned`, and `"exit"` (another room, or "suppress"; no `index` or `door`).
 
 What does not exist yet, so a script's call answers its default: monster variants
-(`content.define_monster`), a puppet's effects and bullets, the camera's and the fader's writes, music, the
-exits, `new_game` / `load` / `retry`, the equipment and the ailments, the shop filter and `blessing_bought`,
+(`content.define_monster`), a puppet's effects (`puppet_effect`, `glow`, `aura`), the camera's and the fader's writes, music, the
+exits, `new_game` / `load` / `retry`, the equipment and the ailments, the shop filter's prices and rows,
 item icons, `unlock_character`, the save profiles, `text*.ini`, and the
 load order in the game's panel. Co-op needs most of the first line.
 
