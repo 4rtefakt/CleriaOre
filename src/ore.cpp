@@ -86,6 +86,43 @@ void read_chests(int scene) {
     }
 }
 
+// ---- combat (cleria.combat.add_filter): the mods in load order, the first answer that is not Pass ----------
+// What the game keeps of an actor (CleriaCore's ENTITY.md, LEVELING.md): floats but the cast, level and SP.
+template <class T>
+T field(const void* actor, std::size_t at) {
+    T v;
+    std::memcpy(&v, static_cast<const char*>(actor) + at, sizeof v);
+    return v;
+}
+constexpr std::size_t kActPos = 0x50, kActAtk = 0xa4, kActDef = 0xa8, kActExp = 0xb0, kActSp = 0xc4, kActLevel = 0xc8, kActCast = 0x124, kActFlags = 0x12c;
+constexpr int kCastPlayer = 13;
+constexpr std::uint32_t kActCredited = 0x4000000;   // +0x12c: its EXP was given (the game's own once-only guard)
+const auto scale_sp = reinterpret_cast<int(__fastcall*)(int base)>(0x4fa390);   // the difficulty, the blessing, the game's SP rate
+const auto add_sp = reinterpret_cast<void(__fastcall*)(int amount)>(0x4fa290);   // into the wallet (0..999999) and the player's record
+
+bool combat_on(script::CombatQuery::Kind k) {
+    if (WaitForSingleObject(g_started, 0) != WAIT_OBJECT_0) return false;
+    for (auto& m : g_scripts)
+        if (m->ok() && m->has_combat_filter(k)) return true;
+    return false;
+}
+script::CombatDecision combat(const script::CombatQuery& q) {
+    const std::string room = host().room();
+    for (auto& m : g_scripts) {
+        if (!m->ok() || !m->has_combat_filter(q.kind)) continue;
+        const script::CombatDecision d = m->combat_filter(q, room);
+        if (d.action != script::CombatDecision::Action::Pass) return d;
+    }
+    return {};
+}
+// The answer as a number within 0..`top`.
+double answered(const script::CombatDecision& d, double value, double top) {
+    if (d.action == script::CombatDecision::Action::Suppress) return 0;
+    if (d.action == script::CombatDecision::Action::Replace) return std::clamp(d.value, 0.0, top);
+    return value;
+}
+float g_kill_exp = 0;   // the EXP of the kill being credited, for its enemy_killed
+
 void emit(events::Event e, const std::string& room) {
     e.room = room;
     events::bus().emit(e);
@@ -306,6 +343,75 @@ GrantDecision on_grant(GrantQuery q) {
         emit(e, room);
     }
     return d;
+}
+
+// A hit's final damage. Dealt: the player's on a monster. Taken: on the player.
+int on_damage(bool dealt, int value, const void* victim, const void* attacker) {
+    using Kind = script::CombatQuery::Kind;
+    if (!victim || !combat_on(Kind::Damage)) return value;
+    const int vcast = field<std::int32_t>(victim, kActCast);
+    if (dealt ? (!attacker || field<std::int32_t>(attacker, kActCast) != kCastPlayer) : vcast != kCastPlayer) return value;
+    script::CombatQuery q;
+    q.kind = Kind::Damage;
+    q.value = value;
+    q.num = {{"formula", double(value)}, {"def", double(field<float>(victim, kActDef))}};   // [H] the formula's own result is not kept apart
+    if (dealt) {
+        q.num.push_back({"cast", double(vcast)});
+        q.num.push_back({"level", double(field<std::int32_t>(victim, kActLevel))});
+        q.num.push_back({"atk", double(field<float>(attacker, kActAtk))});
+    }
+    q.str = {{"dir", dealt ? "dealt" : "taken"}};
+    return int(answered(combat(q), value, 999999.0));
+}
+
+// An EXP award above 0, as it joins the total.
+float on_exp(float value, int source, const void* victim) {
+    using Kind = script::CombatQuery::Kind;
+    if (source == 0) g_kill_exp = value;
+    if (!(value > 0) || !combat_on(Kind::Exp)) return value;
+    script::CombatQuery q;
+    q.kind = Kind::Exp;
+    q.value = value;
+    q.num = {{"level", host().stat(script::Host::Stat::Level)}};
+    if (victim) {
+        q.num.push_back({"cast", double(field<std::int32_t>(victim, kActCast))});
+        q.num.push_back({"enemy_level", double(field<std::int32_t>(victim, kActLevel))});
+        q.num.push_back({"base", double(field<float>(victim, kActExp))});
+    }
+    q.str = {{"source", source == 1 ? "boss" : "kill"}};
+    const float out = float(answered(combat(q), value, 9999999.0));
+    if (source == 0) g_kill_exp = out;
+    return out;
+}
+
+// The kill block of the player's hit, past its EXP: the "sp" filter on what the game would credit, then
+// enemy_killed. A filter's SP is credited here and the game's own credit is switched off (*sp = 0).
+void on_kill(const void* victim, float* sp) {
+    using Kind = script::CombatQuery::Kind;
+    if (!victim || WaitForSingleObject(g_started, 0) != WAIT_OBJECT_0 || g_scripts.empty()) return;
+    const int cast = field<std::int32_t>(victim, kActCast), base = int(*sp);
+    int credited = base > 0 ? scale_sp(base) : 0;
+    if (credited > 0 && combat_on(Kind::Sp)) {
+        script::CombatQuery q;
+        q.kind = Kind::Sp;
+        q.value = credited;
+        q.num = {{"base", double(base)}, {"cast", double(cast)}};
+        q.str = {{"source", "kill"}};
+        const script::CombatDecision d = combat(q);
+        if (d.action != script::CombatDecision::Action::Pass) {
+            credited = int(answered(d, credited, 999999.0));
+            *sp = 0;
+            if (credited > 0) add_sp(credited);
+        }
+    }
+    if (field<std::uint32_t>(victim, kActFlags) & kActCredited) return;   // a revived monster killed again: no second event
+    events::Event e{events::Kind::EnemyKilled};
+    e.cast = cast;
+    e.level = field<std::int32_t>(victim, kActLevel);
+    for (int k = 0; k < 3; ++k) e.pos[k] = field<float>(victim, kActPos + 4 * std::size_t(k));
+    e.amount = g_kill_exp;
+    e.amount2 = credited;
+    emit(e, host().room());
 }
 
 void on_frame() {

@@ -31,7 +31,11 @@ bool hooked();                         // hooks.cpp: the hooks are in (this proc
 // hooks.cpp, the game thread: a file as the game reads it ("data\map\s_10\s_1001\s_box01.xso.z"; a mod's
 // override, else the game's archive), a ".z" unpacked. False: there is none.
 bool game_file(const char* path, std::vector<std::uint8_t>& out);
-void set_exp_factor(float f);          // hooks.cpp: what the EXP the game awards is multiplied by
+void set_exp_factor(float f);          // hooks.cpp: the game's own EXP rate, which every award is multiplied by
+// Combat, asked by hooks.cpp as the game applies it (the game thread). An actor is the game's own record.
+int on_damage(bool dealt, int value, const void* victim, const void* attacker);   // -> the damage that leaves the HP
+float on_exp(float value, int source, const void* victim);    // -> the EXP awarded; source 0 a kill, 1 a boss
+void on_kill(const void* victim, float* sp);                   // a monster died of the player's hit; *sp = the SP it gives, before the game's scale
 cleria::script::Host& host();          // host.cpp: the retail game as a script reaches it
 const std::map<std::string, std::pair<int, std::string>>& chests();   // the room's: script -> {box flag, object}
 void on_tick();                        // one step of the game's 60 Hz simulation ran (the game thread)

@@ -51,37 +51,122 @@ int __fastcall hook_read(Reader* r, void*, void* dst, std::uint32_t n, std::uint
     return 0;
 }
 
-// ---- the EXP the game awards (cleria.game.exp_factor) ----------------------------------------------
-// Three places add an award to the EXP total 0x76a748, each with the award in xmm1, then run the level-ups:
-//   0x4fa525  addss xmm1, [0x76a748]    FUN_004fa4a0: a script's or a pickup's EXP
-//   0x5226c7  addss xmm1, [0x76a748]    FUN_005215e0: a kill
-//   0x4fcc07  addss xmm0, xmm1          FUN_004fbb40: a kill by the player's hit
-constexpr std::uintptr_t kExp1 = 0x4fa525, kExp2 = 0x5226c7, kExp3 = 0x4fcc07;
-constexpr std::uint8_t kExp1Bytes[] = {0xf3, 0x0f, 0x58, 0x0d, 0x48, 0xa7, 0x76, 0x00, 0xf3, 0x0f, 0x11, 0x0d, 0x48, 0xa7, 0x76, 0x00};
-constexpr std::uint8_t kExp3Bytes[] = {0xf3, 0x0f, 0x58, 0xc1, 0xf3, 0x0f, 0x11, 0x05, 0x48, 0xa7, 0x76, 0x00};
-void* g_exp1 = nullptr;
-void* g_exp2 = nullptr;
-void* g_exp3 = nullptr;
-float g_exp_factor = 1.0f;
+// ---- combat: the damage of a hit, the EXP and SP of a kill (cleria.combat.add_filter, enemy_killed) ----
+// FUN_004fbb40 applies a hit of actor ESI on actor EDI, FUN_004fd350 a hit on the player (EDI):
+//   0x4fc802  mov ecx, [ebp-0x1c]       the final damage, about to leave the victim's HP (+0x98)
+//   0x4fdc58  movss xmm0, [edi+0x98]    the same on the player, the damage in ESI (some paths jump here past
+//                                       the load of ESI from [ebp-0x18] just before)
+// and FUN_004fbb40's kill block (the victim's HP fell under 1):
+//   0x4fcc07  addss xmm0, xmm1          the kill's EXP (xmm1) joins the total 0x76a748
+//   0x4fcc18  mov eax, [edi+0x124]      past the level-ups; the kill's SP ([ebp-0x3c], a float) is credited later
+// Two more places add EXP the same way, the award in xmm1: FUN_004fa4a0 (0x4fa525, a boss's) and FUN_005215e0
+// (0x5226c7). cleria.game.exp_factor is the game's own EXP rate 0x76a5fc, which all three multiply by before
+// they floor the award.
+constexpr std::uintptr_t kExpRate = 0x76a5fc;
+constexpr std::uintptr_t kDealt = 0x4fc802, kTaken = 0x4fdc58, kExpKill = 0x4fcc07, kKill = 0x4fcc18, kExpBoss = 0x4fa525, kExpOther = 0x5226c7;
+constexpr std::uint8_t kDealtBytes[] = {0x8b, 0x4d, 0xe4, 0xf3, 0x0f, 0x10, 0x87, 0x98, 0x00, 0x00, 0x00};
+constexpr std::uint8_t kTakenBytes[] = {0xf3, 0x0f, 0x10, 0x87, 0x98, 0x00, 0x00, 0x00, 0x66, 0x0f, 0x6e, 0xce};
+constexpr std::uint8_t kExpKillBytes[] = {0xf3, 0x0f, 0x58, 0xc1, 0xf3, 0x0f, 0x11, 0x05, 0x48, 0xa7, 0x76, 0x00};
+constexpr std::uint8_t kKillBytes[] = {0x8b, 0x87, 0x24, 0x01, 0x00, 0x00, 0x81, 0x8f, 0x2c, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04};
+constexpr std::uint8_t kExpAddBytes[] = {0xf3, 0x0f, 0x58, 0x0d, 0x48, 0xa7, 0x76, 0x00, 0xf3, 0x0f, 0x11, 0x0d, 0x48, 0xa7, 0x76, 0x00};
+void* g_dealt = nullptr;
+void* g_taken = nullptr;
+void* g_exp_kill = nullptr;
+void* g_kill = nullptr;
+void* g_exp_boss = nullptr;
+void* g_exp_other = nullptr;
+float g_exp_value = 0;   // the award a hook hands to on_exp and takes back
 
-__declspec(naked) void hook_exp1() {
+int __cdecl dealt(int value, const void* victim, const void* attacker) { return on_damage(true, value, victim, attacker); }
+int __cdecl taken(int value, const void* victim, const void* attacker) { return on_damage(false, value, victim, attacker); }
+void __cdecl exp_award(const void* victim, int source) { g_exp_value = on_exp(g_exp_value, source, victim); }
+void __cdecl killed(const void* victim, float* sp) { on_kill(victim, sp); }
+
+// Each hook keeps every register, the flags and the FPU / SSE state (fxsave) around its call: the game's code
+// here holds values in xmm registers across what looks like plain instructions.
+#define ORE_ENTER __asm pushfd __asm pushad __asm mov ebx, esp __asm sub esp, 512 __asm and esp, 0xFFFFFFF0 __asm fxsave [esp]
+#define ORE_LEAVE __asm fxrstor [esp] __asm mov esp, ebx __asm popad __asm popfd
+
+__declspec(naked) void hook_dealt() {
     __asm {
-        mulss xmm1, dword ptr [g_exp_factor]
-        jmp   dword ptr [g_exp1]
+        ORE_ENTER
+        push esi                        // the attacker
+        push edi                        // the victim
+        push dword ptr [ebp - 0x1c]
+        call dealt
+        add  esp, 12
+        mov  dword ptr [ebp - 0x1c], eax
+        ORE_LEAVE
+        jmp  dword ptr [g_dealt]        // mov ecx, [ebp-0x1c] ; ...
     }
 }
-__declspec(naked) void hook_exp2() {
+__declspec(naked) void hook_taken() {
     __asm {
-        mulss xmm1, dword ptr [g_exp_factor]
-        jmp   dword ptr [g_exp2]
+        ORE_ENTER
+        push dword ptr [ebx + 16]       // the game's EBX: what hit
+        push edi                        // the victim: the player
+        push esi
+        call taken
+        add  esp, 12
+        mov  dword ptr [ebx + 4], eax   // the game's ESI, as popad gives it back
+        mov  dword ptr [ebp - 0x18], eax
+        ORE_LEAVE
+        jmp  dword ptr [g_taken]        // movss xmm0, [edi+0x98] ; ...
     }
 }
-__declspec(naked) void hook_exp3() {
+__declspec(naked) void hook_exp_kill() {
     __asm {
-        mulss xmm1, dword ptr [g_exp_factor]
-        jmp   dword ptr [g_exp3]
+        movss dword ptr [g_exp_value], xmm1
+        ORE_ENTER
+        push 0                          // a kill
+        push edi                        // the monster
+        call exp_award
+        add  esp, 8
+        ORE_LEAVE
+        movss xmm1, dword ptr [g_exp_value]
+        jmp  dword ptr [g_exp_kill]     // addss xmm0, xmm1 ; the store
     }
 }
+__declspec(naked) void hook_exp_boss() {
+    __asm {
+        movss dword ptr [g_exp_value], xmm1
+        ORE_ENTER
+        push 1                          // a boss
+        push 0
+        call exp_award
+        add  esp, 8
+        ORE_LEAVE
+        movss xmm1, dword ptr [g_exp_value]
+        jmp  dword ptr [g_exp_boss]
+    }
+}
+__declspec(naked) void hook_exp_other() {
+    __asm {
+        movss dword ptr [g_exp_value], xmm1
+        ORE_ENTER
+        push 0
+        push 0
+        call exp_award
+        add  esp, 8
+        ORE_LEAVE
+        movss xmm1, dword ptr [g_exp_value]
+        jmp  dword ptr [g_exp_other]
+    }
+}
+__declspec(naked) void hook_kill() {
+    __asm {
+        ORE_ENTER
+        lea  eax, [ebp - 0x3c]          // the SP the game is about to scale and credit
+        push eax
+        push edi                        // the monster
+        call killed
+        add  esp, 8
+        ORE_LEAVE
+        jmp  dword ptr [g_kill]
+    }
+}
+#undef ORE_ENTER
+#undef ORE_LEAVE
 
 // ---- the game loop (FUN_00410440 runs FUN_004106e0 once per 60 Hz step, then renders) --------------
 using StepFn = void(__fastcall*)(char active, char arg);   // FUN_004106e0: `active` = a real step, 0 = an idle one
@@ -298,8 +383,9 @@ const Site kSites[] = {
     SITE(kIcon, kIconBytes, &hook_icon, &g_icon),         SITE(kWindow, kWindowBytes, &hook_window, &g_window),
     SITE(kInit, kInitBytes, &hook_init, &g_init),         SITE(kSave, kSaveBytes, &hook_save, &g_save),
     SITE(kLoad, kLoadBytes, &hook_load, &g_load),         SITE(kLoad2, kLoad2Bytes, &hook_load2, &g_load2),
-    SITE(kExp1, kExp1Bytes, &hook_exp1, &g_exp1),         SITE(kExp2, kExp1Bytes, &hook_exp2, &g_exp2),
-    SITE(kExp3, kExp3Bytes, &hook_exp3, &g_exp3),
+    SITE(kDealt, kDealtBytes, &hook_dealt, &g_dealt),     SITE(kTaken, kTakenBytes, &hook_taken, &g_taken),
+    SITE(kExpKill, kExpKillBytes, &hook_exp_kill, &g_exp_kill), SITE(kKill, kKillBytes, &hook_kill, &g_kill),
+    SITE(kExpBoss, kExpAddBytes, &hook_exp_boss, &g_exp_boss), SITE(kExpOther, kExpAddBytes, &hook_exp_other, &g_exp_other),
 };
 #undef SITE
 
@@ -326,7 +412,9 @@ bool install_hooks() {
 
 bool hooked() { return g_hooked; }
 
-void set_exp_factor(float f) { g_exp_factor = f; }
+void set_exp_factor(float f) {
+    if (g_hooked) *reinterpret_cast<float*>(kExpRate) = f;
+}
 
 bool game_file(const char* path, std::vector<std::uint8_t>& out) {
     void* archive = g_hooked ? *reinterpret_cast<void**>(kArchive) : nullptr;

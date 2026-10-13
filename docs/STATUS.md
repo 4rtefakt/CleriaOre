@@ -22,6 +22,9 @@ What works:
 - What a script changes: the flags, HP, SP, the level, the weapon tier, EXP (`add_exp`, `exp_factor`), a
   warp to a statue, `cleria.game.save`, and its own files (`cleria.data`, in `cleriaore/modsdata/<id>/`).
   Each goes through the game's own function where it has one.
+- Combat (`cleria.combat.add_filter`): `"damage"` on the player's hits and on the hits he takes, `"exp"` on
+  a kill's and a boss's EXP, `"sp"` on a kill's SP, and the `enemy_killed` event. A query carries less
+  than CleriaCore's: no `power`, `class` or separate `formula` for a hit, no intermediate steps for EXP.
 - The events CleriaCore's content layer reports: `chest_opened`, `door_opened`, `boss_defeated`, `death`
   and `item_used`.
 - The script VM's grants: `cleria.content.add_filter` sees a script's flag stores (ops 0x64 and 0x67, not
@@ -44,9 +47,10 @@ What works:
 The hooks are for one build only, the Steam `yso_win.exe` linked 2024-01-08: on any other exe nothing is
 hooked and the log says so.
 
-What does not exist yet, so a script's call answers its default: the combat and shop filters and their
-events (`enemy_killed`, `pickup_collected`, `blessing_bought`), `spawn_pickup`, the stat modifiers,
-`unlock_character`, the save profiles, `content/*.ini`, images and icons, and the load order in the panel.
+What does not exist yet, so a script's call answers its default: the `"drop"` and `"pickup"` filters and
+`pickup_collected`, the shop filter and `blessing_bought`, `spawn_pickup`, the stat modifiers, a mod's own
+window and its input actions, `cleria.world` (monsters, puppets), sounds, images and icons,
+`unlock_character`, the save profiles, `content/*.ini`, and the load order in the game's panel.
 
 ## Build
 

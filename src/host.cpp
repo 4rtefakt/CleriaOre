@@ -288,7 +288,8 @@ struct RetailHost : script::Host {
         const float* buff = &at<float>(kBuffs);     // MP, Strength, Defense
         o.buff[0] = buff[1]; o.buff[1] = buff[2]; o.buff[2] = buff[0];
         for (int k = 0; k < 3; ++k) o.buff_timer[k] = (&at<std::int32_t>(kBuffTimers))[k];
-        return true;   // luck and the position are not read yet
+        std::memcpy(o.pos, at<char*>(kPlayer) + 0x50, sizeof o.pos);   // the actor's position
+        return true;   // luck is not read (0 in every game)
     }
     void warp(int index) override {
         if (!in_game() || index < 0 || index >= 24) return;
