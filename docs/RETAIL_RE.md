@@ -421,3 +421,15 @@ The notes themselves are gathered in the `yso` repository.
 - The drive's `shot <name>` writes the frame as the device holds it at EndScene (the render target, resolved
   if multisampled, read back) to `drive/<name>.bmp`. Nothing of the desktop is in it, and it does not matter
   what covers the game's window.
+
+## The title's list
+
+- **The title's menu is a list window built by `FUN_005765c0`**: `FUN_00578440` (thiscall: &{x, y}, a caption,
+  0) places it, then one `FUN_00578680` a row (thiscall: the label, a wide string the game converts itself; the
+  row's `void()` callback), at most 17 rows, then the layout `FUN_00578710`. Exit (callback 0x576000) is the
+  main list's last row. The list is built again whenever no window is up, with its cursor on the row the byte
+  0x74ac3d remembers.
+- A "Mods" row is added before Exit: its callback asks for the loader's panel, which opens once the key that
+  chose the row is up (so that key chooses nothing in the panel), and notes its own row for the cursor. The
+  list is placed 16 units higher, as the game does itself when it has an Achievements row. Seen: the row, the
+  panel opening from it with nothing toggled, the cursor back on "Mods" after the panel.

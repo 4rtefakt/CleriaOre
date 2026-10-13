@@ -32,6 +32,7 @@ bool ui_panel_open();                 // the F1 panel is open
 bool ui_key_down(const std::string& name, bool pad);
 bool ui_key_known(const std::string& name, bool pad);
 void ui_notice(const std::string& head, const std::string& text);   // a card over the game for a few seconds
+void ui_open_panel();                                               // the F1 panel, as F1 opens it
 // A mod's picture for an item of its own or for an icon id (items.ini Icon=, cleria.ui.icon): kept by id, and shown
 // beside the card for a few seconds.
 void ui_item_icon(int item, const std::filesystem::path& file);

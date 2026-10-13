@@ -398,7 +398,31 @@ __declspec(naked) void hook_toal_b() {
         jmp  dword ptr [g_toal_b]
     }
 }
-// FUN_004295d0, the HUD's draw: the status widgets (each drawn while its owner, +4, or its fading flag, +0x48, is
+// The title's list (FUN_005765c0) is a window given its place and caption by FUN_00578440 (thiscall: &{x, y}, the
+// caption, 0) and then its rows by FUN_00578680 (thiscall: the label, a wide string; the row's void() callback), the last of the
+// main list being Exit (0x576000). A "Mods" row is added before Exit, which opens the loader's panel; the list is
+// put 16 units higher for it, as the game itself does for its Achievements row.
+constexpr std::uintptr_t kListOpen = 0x578440, kListAdd = 0x578680;
+constexpr std::uint8_t kListOpenBytes[] = {0x8b, 0x54, 0x24, 0x08, 0x56, 0x57, 0x8b, 0xf9, 0x8d, 0xb7, 0x20, 0x01, 0x00, 0x00, 0xc7, 0x87};
+constexpr std::uint8_t kListAddBytes[] = {0x56, 0x8b, 0xf1, 0x8b, 0x96, 0xb0, 0x1f, 0x00, 0x00, 0x83, 0xfa, 0x11, 0x73, 0x71, 0xa1, 0x9c};
+void(__thiscall* g_list_open)(void* self, float* origin, const char* caption, int) = nullptr;
+void(__thiscall* g_list_add)(void* self, const wchar_t* label, void* callback) = nullptr;
+std::uint8_t g_mods_row = 0;            // its place in the list, which the title remembers its cursor by (0x74ac3d)
+void __cdecl title_mods() {
+    *reinterpret_cast<std::uint8_t*>(0x74ac3d) = g_mods_row;
+    ui_open_panel();
+}
+void __fastcall hook_list_open(void* self, void*, float* origin, const char* caption, int z) {
+    if (caption == reinterpret_cast<const char*>(0x6a06e4) && *reinterpret_cast<std::uint8_t*>(0x74e259) == 0 && origin) origin[1] -= 16.0f * 1.6f;
+    g_list_open(self, origin, caption, z);
+}
+void __fastcall hook_list_add(void* self, void*, const wchar_t* label, void* callback) {
+    if (callback == reinterpret_cast<void*>(0x576000)) {
+        g_mods_row = std::uint8_t(*reinterpret_cast<std::int32_t*>(static_cast<char*>(self) + 0x1fb0) - 1);   // the rows so far, less the caption's
+        g_list_add(self, L"Mods", &title_mods);
+    }
+    g_list_add(self, label, callback);
+}// FUN_004295d0, the HUD's draw: the status widgets (each drawn while its owner, +4, or its fading flag, +0x48, is
 // set: 0x6d5ef0 the gauges and the portrait, 0x6d5f3c the skill's), then the boss gauge by FUN_0043a770 (widget
 // 0x6d5fd4 in ecx). A part a mod hides is not drawn: the status widgets read as absent for the call, the gauge's
 // draw is skipped.
@@ -879,6 +903,7 @@ const Site kSites[] = {
     SITE(kSkill, kSkillBytes, &hook_skill, &g_skill),     SITE(kJump, kJumpBytes, &hook_jump, &g_jump),
     SITE(kFx, kFxBytes, &hook_fx, &g_fx),                 SITE(kToalA, kToalABytes, &hook_toal_a, &g_toal_a),
     SITE(kToalB, kToalBBytes, &hook_toal_b, &g_toal_b),
+    SITE(kListOpen, kListOpenBytes, &hook_list_open, &g_list_open), SITE(kListAdd, kListAddBytes, &hook_list_add, &g_list_add),
     SITE(kSpawn, kSpawnBytes, &hook_spawn, &g_spawn),       SITE(kTouch, kTouchBytes, &hook_touch, &g_touch),
 };
 #undef SITE

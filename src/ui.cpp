@@ -172,6 +172,7 @@ void make_texture(Image& im) {
 const bool g_drive = std::getenv("CLERIAORE_DRIVE") != nullptr;
 unsigned char g_drive_keys[256] = {};
 bool g_drive_mouse[4] = {};   // codes 100..103: the mouse buttons
+bool g_panel_asked = false;  // the panel is to open (ui_open_panel)
 std::string g_drive_shot;     // "shot <name>": the frame being drawn is written to drive/<name>.bmp
 // The frame as the device holds it (so whatever covers the game's window on the desktop does not matter).
 void drive_shot(IDirect3DDevice9* dev) {
@@ -366,6 +367,12 @@ HRESULT WINAPI hook_end_scene(IDirect3DDevice9* dev) {
 
     drive_poll();
     if (ImGui::IsKeyPressed(ImGuiKey_F1, false)) g_panel.open = !g_panel.open;
+    // The title's "Mods" row asked for the panel: opened once the key that chose the row is up, so it chooses nothing here.
+    if (g_panel_asked && !ImGui::IsKeyDown(ImGuiKey_Enter) && !ImGui::IsKeyDown(ImGuiKey_KeypadEnter) && !ImGui::IsKeyDown(ImGuiKey_Space) &&
+        !ImGui::IsKeyDown(ImGuiKey_GamepadFaceDown)) {
+        g_panel_asked = false;
+        g_panel.open = true;
+    }
     const bool was_open = g_panel.open || window_mod();
     io.MouseDrawCursor = was_open;
     const ui::Nav nav = ui::read_nav();
@@ -504,6 +511,7 @@ bool ui_key_down(const std::string& name, bool pad) {
 }
 
 void ui_notice(const std::string& head, const std::string& text) { g_notice = {head, text, now()}; }
+void ui_open_panel() { g_panel_asked = true; }
 void ui_item_icon(int item, const std::filesystem::path& file) {
     if (const int h = ui_load_image(file)) g_item_icons[item] = h;
 }

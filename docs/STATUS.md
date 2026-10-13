@@ -50,7 +50,7 @@ What works:
   CleriaCore's sidecar file, `yso_NN.cleria`, but in `cleriaore/saves/`, not beside the game's save (which
   may be in the Steam Cloud only): it does not follow the save to another machine.
 - The overlay, drawn in the game's own frame in the look of the game's own menus (`src/kit.inl`, a UI kit
-  with the API of CleriaCore's, so a mod's page is drawn by either): the mods' HUD layers, their notices, and the **F1** panel, with the mods On / Off (applied at
+  with the API of CleriaCore's, so a mod's page is drawn by either): the mods' HUD layers, their notices, and the **F1** panel (also the title's own "Mods" row, added to the game's menu before Exit), with the mods On / Off (applied at
   the next start), each mod's own page and its settings (`cleriaore.ini`, `[cleria.mod.<id>]`). The game
   is held while the panel is open.
 
