@@ -99,6 +99,7 @@ double tune(int key);
 void set_hud_hidden(const std::string& mod, unsigned bits);
 unsigned hud_hidden();
 void hud_tick();                                     // host.cpp: the game's HUD kept out of sight while a mod hides it
+void cam_tick();                                     // host.cpp: the mods' layer over the camera the game publishes
 void tune_tick();                                    // host.cpp: the player's actor follows, each step
 // cleria.world.add_filter: whether a mod has a filter of that kind, and the first answer that is not "pass".
 bool world_on(const char* kind);

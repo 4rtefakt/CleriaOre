@@ -67,8 +67,8 @@ hooked and the log says so.
   `ai`; not the look), `world.snapshot` and `world.apply`, `world.spawn` for any monster cast.
 - `player.equipment` and `equip`, `player.status` and `set_status` (without the hit's show), `audio.music` and
   `stop_music`, `screen.fade` and `flash`.
-- Sessions: `game.load` (from the title too), `game.retry`, `game.to_title`. The camera: `camera.shake`,
-  `camera.look_at`. Effects: `player_effect` and `world.puppet_effect`. `script.run`, a script of the game's.
+- Sessions: `game.load` (from the title too), `game.retry`, `game.to_title`. The camera: `camera.set` and `reset`,
+  `camera.shake`, `camera.look_at`. `audio.se_file`, a WAV of the mod's (by Windows: one at a time, untested). Effects: `player_effect` and `world.puppet_effect`. `script.run`, a script of the game's.
 - The room's doors: `game.exits` and `take_exit`. The look: the `scale` of `player.set_look` and of `world.form` (not
   the glow or the tint).
 - API 7's events from the game: `enemy_hit`, `player_hit`, `level_up`, `floor_changed`, `retry`, `enemy_spawned`,
@@ -81,8 +81,7 @@ hooked and the log says so.
 
 What does not exist yet, so a script's call answers its default: a variant's name, tint and own sprite, a
 puppet's `glow`, `aura`, `hittable` and `target` (the game's monsters chase and hit only its own player), the
-camera's distance and field of view (`camera.set`, `reset`), the boss gauge or the messages hidden alone,
-`new_game`, a sound or music file of the mod's own, the shop filter's prices and rows, item icons,
+boss gauge or the messages hidden alone, `new_game`, a music file of the mod's own, the shop filter's prices and rows, item icons,
 `unlock_character` (it would write into the player's clear records), the save profiles, `text*.ini`, and the
 load order in the game's panel.
 

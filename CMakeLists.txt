@@ -61,7 +61,7 @@ add_library(dinput8 SHARED
   src/content.cpp
   src/ui.cpp
   src/exports.def)
-target_link_libraries(dinput8 PRIVATE cleria-modkit miniz minhook imgui d3d9)
+target_link_libraries(dinput8 PRIVATE cleria-modkit miniz minhook imgui d3d9 winmm)
 target_compile_definitions(dinput8 PRIVATE NOMINMAX)   # CleriaCore's sources use std::min / std::max
 set_target_properties(dinput8 PROPERTIES PREFIX "" OUTPUT_NAME "dinput8")
 

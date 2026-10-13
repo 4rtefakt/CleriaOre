@@ -12,6 +12,7 @@
 #include <set>
 #include <windows.h>
 #include <shellapi.h>
+#include <mmsystem.h>
 
 #include "cleria/content.hpp"
 #include "cleria/mod_events.hpp"
@@ -364,6 +365,13 @@ struct RetailHost : script::Host {
         }
         spawned_by().clear();
     }
+    // The mods' layer over the game's camera (camera.set): the eye's distance from its subject and the field of view
+    // scaled, eye and subject moved together.
+    struct CamLayer {
+        float dist = 1.0f, fov = 1.0f, off[3] = {0, 0, 0};
+        bool identity() const { return dist == 1.0f && fov == 1.0f && off[0] == 0 && off[1] == 0 && off[2] == 0; }
+    };
+    static CamLayer& cam_layer() { static CamLayer c; return c; }
     static char* find_monster(int id) {
         const int n = at<std::int32_t>(kActorCount);
         for (int i = 0; i < n && i < 256; ++i)
@@ -422,6 +430,9 @@ struct RetailHost : script::Host {
         auto arg = [&](std::size_t i, double d = 0.0) { return i < n.size() ? n[i] : d; };
         if (op == "pause") { set_pause(mod, arg(0) != 0); return true; }          // these two hold with or without a game
         if (op == "speed") { set_speed(mod, arg(0, 1.0)); return true; }
+        if (op == "se_file") {                                                    // a WAV of the mod's folder, by Windows itself: one at a time, at its own volume
+            return !text.empty() && PlaySoundW(std::filesystem::u8path(text).c_str(), nullptr, SND_FILENAME | SND_ASYNC | SND_NODEFAULT) != FALSE;
+        }
         if (op == "load") return load_slot(int(arg(0, -1)));                      // from the title too
         if (!in_game()) return false;
         char* player = at<char*>(kPlayer);
@@ -866,9 +877,18 @@ struct RetailHost : script::Host {
             if (!out) return false;
             const float* e = &at<float>(kCamEye);
             const float* t = &at<float>(kCamTarget);
-            *out = {e[0], e[1], e[2], t[0], t[1], t[2], at<float>(kCamFov), 1.0, 1.0};
+            *out = {e[0], e[1], e[2], t[0], t[1], t[2], at<float>(kCamFov), cam_layer().dist, cam_layer().fov};
             return true;
         }
+        if (op == "cam_set") {                                                    // (dist, fov, ox, oy, oz): a NaN keeps the value
+            CamLayer& c = cam_layer();
+            if (std::isfinite(arg(0, NAN))) c.dist = std::clamp(float(arg(0)), 0.2f, 5.0f);
+            if (std::isfinite(arg(1, NAN))) c.fov = std::clamp(float(arg(1)), 0.3f, 2.5f);
+            for (std::size_t k = 0; k < 3; ++k)
+                if (std::isfinite(arg(2 + k, NAN))) c.off[k] = std::clamp(float(arg(2 + k)), -50.0f, 50.0f);
+            return true;
+        }
+        if (op == "cam_reset") { cam_layer() = CamLayer{}; return true; }
         return false;
     }
     std::vector<ModInfo> mod_list() override {
@@ -1124,6 +1144,26 @@ void hud_tick() {
     if (!hooked() || !(hud_hidden() & 1u)) return;
     *reinterpret_cast<float*>(0x74e688) = 0.0f;
     *reinterpret_cast<std::uint32_t*>(0x74e68c) = 0x00ffffffu;
+}
+// The game publishes its camera each step (the subject at 0x76a160, the eye at 0x76a16c, the field of view at
+// 0x7b38f4) and builds the frame's view from it. The layer is applied to what the game wrote; values still as the
+// layer left them (a step that did not move the camera) are not scaled twice.
+void cam_tick() {
+    const RetailHost::CamLayer& c = RetailHost::cam_layer();
+    static float left[7] = {0, 0, 0, 0, 0, 0, 0};
+    if (!hooked() || c.identity()) return;
+    float* tgt = reinterpret_cast<float*>(0x76a160);
+    float* eye = reinterpret_cast<float*>(0x76a16c);
+    float* fov = reinterpret_cast<float*>(0x7b38f4);
+    const float now[7] = {tgt[0], tgt[1], tgt[2], eye[0], eye[1], eye[2], *fov};
+    if (std::memcmp(now, left, sizeof now) == 0) return;
+    for (int k = 0; k < 3; ++k) {
+        eye[k] = tgt[k] + (eye[k] - tgt[k]) * c.dist + c.off[k];
+        tgt[k] += c.off[k];
+    }
+    *fov *= c.fov;
+    const float after[7] = {tgt[0], tgt[1], tgt[2], eye[0], eye[1], eye[2], *fov};
+    std::memcpy(left, after, sizeof left);
 }
 void tune_tick() {
     static float wrote[2] = {0, 0}, base[2] = {0, 0};

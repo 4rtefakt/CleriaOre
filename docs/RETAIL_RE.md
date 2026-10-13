@@ -190,6 +190,13 @@ The notes themselves are gathered in the `yso` repository.
   `0x76a1c4` / `0x76a1cc` to go back), the step at `0x76a1f0`, the progress at `0x76a1ec`, the direction at
   `0x76a1e8` (1 to the point, 0 back), a done byte at `0x76a1c0`.
 
+- **The frame's view is built from the camera the game publishes each step** (the subject `0x76a160`, the eye
+  `0x76a16c`, the field of view `0x7b38f4`, in radians): what is written there after the step is what the
+  frame is drawn with. `camera.set` is a layer applied to those values after each step (the eye's distance
+  from its subject and the field of view scaled, both points moved). Driven in S_2013: the eye 30.00 from
+  its subject, 60.00 at a distance of 2 with the whole room in view, the field of view 0.454 to 0.272 at
+  0.6, both back after `reset`.
+
 ## Effects
 
 - **`FUN_004496f0(actor, args)`, stdcall,** is an animation script's anime_GenerateEffect: ten words, the

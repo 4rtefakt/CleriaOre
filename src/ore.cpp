@@ -452,6 +452,7 @@ void emit_named(const events::Event& e) { emit(e, host().room()); }
 void on_tick() {
     if (WaitForSingleObject(g_started, 0) != WAIT_OBJECT_0 || (g_scripts.empty() && !content_on())) return;
     if (!g_tune.empty()) tune_tick();
+    cam_tick();
     if (!g_hud_hidden.empty()) hud_tick();
     world_tick();
     script::Host& h = host();
