@@ -37,7 +37,7 @@ What works:
   game publishes), `set_actor`, `remove`, and `spawn` for a cast the room already holds (the game loads a
   monster's model with the room). An actor's id is the game's own instance id, good for the room.
 - Game operations: `player.set_position`, `set_mp`, `set_boost`, `set_exp`, heal and hurt, `game.pause`,
-  `game.set_speed`, `game.room_title` (the game's scene table; so `floor` and `zone`), `game.goto_room` (the request a script's ChangeScene makes), the random seed, a sound of the game's (`audio.se`), `camera.get`, `player.pose` and `familiars`, `player.tune` (speed and jump; not the MP, Boost and air-jump keys), `player.set_invulnerable`, a script's hits (`combat.damage` on a monster, `combat.strike` on the player, without the flinch), `world.boss` (the gauge; no `actor` for a boss built of map objects) and `combat.boss_bonus`. The "damage" filter also sees the player's hits on a boss's parts. What was learnt of the retail game for these is in [RETAIL_RE.md](RETAIL_RE.md).
+  `game.set_speed`, `game.room_title` (the game's scene table; so `floor` and `zone`), `game.goto_room` (the request a script's ChangeScene makes), the random seed, a sound of the game's (`audio.se`), `camera.get`, `player.pose` and `familiars`, `player.tune` (speed, jump, MP cost, MP regeneration, Boost gain, extra air jumps), `player.set_invulnerable`, a script's hits (`combat.damage` on a monster, `combat.strike` on the player, without the flinch), `world.boss` (the gauge; no `actor` for a boss built of map objects) and `combat.boss_bonus`. The "damage" filter also sees the player's hits on a boss's parts. What was learnt of the retail game for these is in [RETAIL_RE.md](RETAIL_RE.md).
 - `content/*.ini`: `chests.ini`, `rules.ini`, `pickups.ini` (items of the game's own), `text.ini` (a script's
   strings), new items
   (0x100..0x1FF) kept with the save, the retail items' patched name, description and value.
@@ -64,8 +64,8 @@ The hooks are for one build only, the Steam `yso_win.exe` linked 2024-01-08: on 
 hooked and the log says so.
 
 - Puppets (`world.puppet`, `set_puppet`, `remove_puppet`, `prop`: any of the three characters or a cast's
-  sprite as an actor the mod moves; not `hittable`, `target`, `glow`, `aura`), `world.form` (the numbers and
-  `ai`; not the look), `world.snapshot` and `world.apply`, `world.spawn` for any monster cast.
+  sprite as an actor the mod moves, with `glow`, `aura` and `hittable`; not `target`), `world.form` (the numbers,
+  `ai`, the name, the boss gauge), `world.snapshot` and `world.apply`, `world.spawn` for any monster cast.
 - `player.equipment` and `equip`, `player.status` and `set_status` (without the hit's show), `audio.music` and
   `stop_music`, `screen.fade` and `flash`.
 - Sessions: `game.load` (from the title too), `game.retry`, `game.to_title`. The camera: `camera.set` and `reset`,
@@ -73,21 +73,26 @@ hooked and the log says so.
 - The room's doors: `game.exits` and `take_exit`. The look: the `scale` of `player.set_look` and of `world.form`.
 - API 7's events from the game: `enemy_hit`, `player_hit`, `level_up`, `floor_changed`, `retry`, `enemy_spawned`,
   `player_bullet`, `player_effect`. Monster variants (`content.define_monster`, `morph`): the numbers, the scale,
-  `on_hit`, `on_death` and the phases. `hud.show` for the whole HUD.
+  `on_hit`, `on_death` and the phases, the name and kind in `world.actors()`, a boss's gauge. `hud.show`: `"status"` and
 - A mod's own picture beside the card when a chest gives its item (`Icon=` in `items.ini`, or `cleria.ui.icon`).
 - `audio.music("file.ogg")`, a music file of the mod's own. The load order in the F1 panel (for the next start).
 - `game.new_game` (from the title). The glow: `player.set_look`'s `glow`, `world.form`'s `tint`, a puppet's `glow`.
   A kill by `combat.damage` gives its EXP and SP and raises `enemy_killed`.
 - Bullets: `player_bullet` for each of the player's, and `world.show_bullet`, the same bullet again for show.
 - The blessing shop: `blessing_bought` with the price paid, and `cleria.shop.add_filter`'s Price answer (in the
-  menu, the test and the payment) and Buy answer (another effect, or none).
-- The world's filters: `"spawn"` (the multipliers and "suppress"; not another cast or level) with
-  `enemy_spawned`, and `"exit"` (another room, or "suppress"; no `index` or `door`).
+  menu, the test and the payment), Row answer (a row's text), Owned answer and Buy answer (another effect, or none).
+- The world's filters: `"spawn"` (the multipliers, another cast, "suppress"; not another level) with
+  `enemy_spawned`, `"exit"` (another room, or "suppress"; the door's `index` and name), `"script"` (a script
+  refused) and `"skill"` (a cast refused).
+- Save profiles (`cleria.save.set_profile`): the saves of a profile are kept under `profiles/<name>/`, in
+  Steam's storage as the game's own are, their sidecars in `cleriaore/saves/profiles/<name>/`. `cleria.locale`
+  (the language Steam installed). `game.unlock_character(3)`: Toal on Character Select for this run, the clear
+  data untouched (not seen working: this install has him open already).
 
-What does not exist yet, so a script's call answers its default: a variant's name and own sprite, a puppet's
-`aura` (an effect that follows it), `hittable` and `target` (the game's monsters chase and hit only its own
-player), the boss gauge or the messages hidden alone, the shop filter's rows and "owned" answers,
-`unlock_character` (it would write into the player's clear records), and the save profiles.
+What does not exist, so a script's call answers its default: a puppet as a `target` (the game's monsters
+chase and hit only its own player), a sprite sheet file of a mod's own for a variant (a sheet of the game's by
+its name works; the game draws from its table of 269), another level from the "spawn" filter, and
+`world.boss().actor` for a boss built of map objects.
 
 The scripted mods of `cleriacore-mods` (17 with the probes) all start and run a fight and room changes without
 a script error. **Co-op runs against a fake teammate** (`tools/coop_bot.py`), as host (the join, the

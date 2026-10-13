@@ -48,8 +48,8 @@ on a boss's death.
 
 ## 5. What only a person can check
 
-The drive cannot hear, and since the screen is shared it no longer looks. These were made to work by the log
-alone:
+The drive cannot hear, cannot press a key in the loader's own panel, and has one install to test on. These
+were made to work by the log or by reading the game's code alone:
 
 1. **Music.** With a mod that has `files/music/YSO_004.ogg`, the first rooms (S_1001) should play that file in
    place of the game's. `cleria.audio.music("file.ogg")` from a mod should start that file, and
@@ -59,6 +59,14 @@ alone:
 3. **The load order in the panel.** F1 > Mods, the "Load order" section at the bottom: Left / Right on a row
    should move the mod, and the order should be the manager's after a restart.
 4. **`player.equip`.** From a mod, equip another owned armor: the Equip page and the stats should follow.
+5. **`game.unlock_character(3)`** on an install where neither Yunica nor Hugo has cleared the game: with a mod
+   calling it on the title, New Game's Character Select should offer Toal's bar lit, and `record.ta2` should be
+   unchanged afterwards.
+6. **A melee swing, the Boost, water.** `attack` with Yunica or Toal (one event a swing of a combo), `boost`
+   on and off, `jump` with `water = 1` in a flooded room, and `double = 1` with the real double jump (the
+   Gold Bracelet's): each was driven only with Hugo on dry ground.
+7. **Save profiles in the menus.** With a profile set on the title (Archipelago's way), the Load page should
+   list only that profile's saves, and the statue's Save should write there.
 
 ## The drive
 
@@ -69,15 +77,18 @@ the environment variable `CLERIAORE_DRIVE` set; each frame it then reads, in `cl
   the game's WASD preset); they reach the game with or without the window's focus;
 - `cmd.txt`: one `cleria.command` a line (`name args`), run and the file removed; `panel` toggles F1;
   `rawactors` writes the game's whole actor list to the log. For study, `peek <addr> [n]` and `poke <addr> <value>`
-  read and write the game's memory (hexadecimal; `p+<offset>` is the player's actor).
+  read and write the game's memory (hexadecimal; `p+<offset>` is the player's actor). `shot <name>` writes
+  the frame being drawn to `drive/<name>.bmp`, as the game's device holds it: the game's picture with the
+  loader's overlay, nothing of the desktop. `profile <name>` sets a save profile at any time (a mod can only on
+  the title) and `steamrm <file>` deletes a file of Steam's storage, both for the save profiles' test.
 
 The probe mod has commands for it: `actors`, `labels`, `weaken`, `remove`, `tp x y z`, `speed f`,
 `hold 0|1`, `image`, `window`, and `lua <code>` for anything else.
 
 Two cautions. The game sometimes stays on a black window at its start (seen three times in some forty starts,
 the cause not found: the loader's log then stops before `[ui] ready`); `drive.ps1 -start` closes it and starts
-again. And `-shot`
-copies the screen where the game's window is, whatever covers it: use the log instead while the screen is shared.
+again. And a key meant for the game also acts in its menus: on the title three OKs reach "Load this data?", and
+the Load page has a Delete button. Look at a frame before confirming anything there.
 
 `tools/drive.ps1` wraps the drive (start the game with it, hold keys, send a command, take a picture of the
 window, read the log, stop). The paths at its top are this machine's.

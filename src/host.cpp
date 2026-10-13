@@ -331,6 +331,14 @@ struct RetailHost : script::Host {
             if (const char* s = at<const char*>(0x68a800 + 4 * i); s && _stricmp(s, name) == 0) return i;
         return -1;
     }
+    // A cast's name for display (CASTINFO +0x10, 20 characters: "Adol"), its record's name when it has none.
+    static std::string cast_name(int cast) {
+        const char* info = at<const char*>(0x74c11c);
+        if (!info || cast < 0 || cast >= 186) return {};
+        const char* rec = info + std::size_t(cast) * 0x200;
+        const std::string display(rec + 0x10, strnlen(rec + 0x10, 0x14));
+        return display.empty() ? std::string(rec, strnlen(rec, 0x10)) : display;
+    }
     // A sheet of the game's by its name ("m_100", with or without an extension): its index in the AIA table, -1.
     static int sheet_named(std::string name) {
         name = fs::path(name).stem().string();
@@ -386,8 +394,7 @@ struct RetailHost : script::Host {
                 q.kind = "spawn";
                 q.num = {{"cast", double(in<std::int32_t>(a, kACast))}, {"level", double(in<std::int32_t>(a, kALevel))}, {"id", double(actor_id(a))},
                          {"x", double(p[0])}, {"y", double(p[1])}, {"z", double(p[2])}, {"group", 0.0}};
-                const char* info = at<const char*>(0x74c11c);
-                q.str = {{"name", info ? std::string(info + std::size_t(in<std::int32_t>(a, kACast)) * 0x200) : std::string()}};
+                q.str = {{"name", cast_name(in<std::int32_t>(a, kACast))}};
                 const auto by = spawned_by().find(a);
                 q.str.emplace_back("by", by == spawned_by().end() ? std::string() : by->second);
                 const script::WorldDecision d = world_filter(q);
@@ -458,7 +465,7 @@ struct RetailHost : script::Host {
             o.yaw = in<float>(a, kAYaw) * 57.29577951f;
             o.hittable = (in<std::uint32_t>(a, kAKind) & kKindSolid) != 0;
             o.ai = !held_set().count(a);
-            if (const char* info = at<const char*>(0x74c11c); info && o.cast >= 0 && o.cast < 186) o.name = info + std::size_t(o.cast) * 0x200;
+            o.name = cast_name(o.cast);
             if (const auto f = forms().find(o.id); f != forms().end()) {
                 o.kind = f->second.kind;
                 o.boss = f->second.boss;

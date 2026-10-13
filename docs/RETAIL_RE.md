@@ -237,8 +237,8 @@ The notes themselves are gathered in the `yso` repository.
 - **The whole HUD has one fade**: the float at `0x74e688`, which the step moves by 0.1 toward its target
   (`0x428660..`), and the tint `0x74e68c` it makes from it (white, the alpha from the fade), which every HUD
   quad is drawn with. Writing both after each step (the fade 0, the tint `0x00ffffff`) keeps the HUD out of
-  the frame; let go, the game fades it back in ten steps. There is no separate switch for the status part,
-  the boss gauge or the messages.
+  the frame; let go, the game fades it back in ten steps. (No longer what the loader does: see "The HUD's
+  parts" below, where each part is left out of the draw.)
 
 ## Events the loader raises itself
 
@@ -325,3 +325,99 @@ The notes themselves are gathered in the `yso` repository.
   `@GrowLe`) put their price in flag 218 with 0xb0 and then compare (0x62: 216, 6, 218) and take by that
   flag. The mods' shop filter is asked the price at each of these. Driven in S_2013 with a filter answering
   50: every row of the menu read "[SP:]50". Then two purchases: the armor's at 50 in place of 300 and the heal rate's at 50 in place of 1,000, the SP going 2,952 to 2,902 to 2,852, and `blessing_bought` carrying the 50.
+
+## The blessing shop's rows and "owned"
+
+- **A menu a script builds gets its rows through one function**, `FUN_005747a0` (thiscall on the windows: text,
+  label). 0xd8 Menu_Add passes its text as it is; 0xdd Menu_AddSpShop first copies its text and puts the price
+  after it (`%d`, 0x56a149..0x56a1f2). The label is the last string either fetches, so the string fetch
+  (`FUN_00566100`) notes the script and the sub-op, and the row's hook asks the mods' filter (Row) for a
+  blessing's row. Driven in S_2013: a filter answering "MOD ROW" + the price for blessing 3 showed
+  "MOD ROW 24000" in the menu in place of "Increase item drop rate - [SP:]24000".
+- **0x9a IsXXX** (0x568fb0) puts 0 in the script's accumulator (+0x1ec), fetches its index and jumps through a
+  table of 34 cases, each testing a bit of `0x76bc80` (7 and 8: the armor and the leggings worn being owned,
+  `0x76a654 + 4 * item`). Hooked after the fetch (0x568fcd): a filter's Owned answer goes into the accumulator
+  and the case is skipped (0x5664c9, where the cases end). Driven: answering 1 for blessing 4 took its row out
+  of the menu.
+
+## The HUD's parts
+
+- **The HUD is drawn by `FUN_004295d0`**: the status widgets, each while its owner (+4) or its fading flag
+  (+0x48) is set (0x6d5ef0 the gauges and the portrait, 0x6d5f3c the skill's), then the boss gauge by
+  `FUN_0043a770` (ecx the widget 0x6d5fd4). `hud.show("status", false)` makes the status widgets read as absent
+  for that call; `"boss"` skips the gauge's draw. Seen on the frame: each hidden alone, at once. This replaces
+  the fade written each step. The retail HUD has no message lines: `"messages"` has nothing to hide.
+
+## Scripts, skills, jumps: the events
+
+- **A script starts by name through `FUN_00434970`** (ecx the name, edx 1 for a full path; on the stack its
+  variables and its owner, the caller pops). It answers 0 when the script did not start, which every caller
+  takes. Hooked: the mods' "script" filter may refuse it, then `script_started`. Not for the calls of the room's
+  setup (`FUN_00431840`): a room's own scripts at its load.
+- **The action button's start** is in `FUN_00460470` (two calls, 0x4609f2 and 0x460aa3): the nearest object in
+  front of the player, its script's name in the object and the object's own name 0x34 after it. From there the
+  start is also `interact` (object, script) and, for "save" / "@save", `statue_used`. Driven at S_2013's
+  statue: `interact object=save_03 script=@save`, `statue_used cleansed=1`.
+- **`FUN_0046ea00(player, mode)`** is the player's cast: mode 1 the skill (the bracelet at 0x76a630, the charge
+  at 0x76c138, the MP it costs put by the mover at player +0x774 just before), mode 0 a plain attack that goes
+  the same way (Hugo's shot) unless a skill is pending (+0x9fc). Hooked: the "skill" filter before a skill
+  (suppressed, no MP is spent), `skill_used` after, and `player.tune{mp_cost}` scales +0x774. Driven: cost
+  2000 of 3000 MP, 0 with mp_cost 0.
+- **Every jump leaves through one place**, 0x468d84, where the mover stores the lift-off speed (+0x420): `jump`,
+  with `double` when the player is already in the air and `water` when submerged (+0x38a). `land`, `boost`
+  (0x76c198 & 0x20) and `attack` (a new hit serial at +0x3c4, which a swing and a shot both take) are read off
+  the player's actor each step. Driven with Hugo: jump, land, attack (section 256), three jumps in a row with
+  two extra air jumps. Not driven: a melee swing (Yunica, Toal), the Boost, a jump in water.
+- **The air jump's mark** is player +0x77c, set by the one jump the mover allows in the air with flag 163
+  (0x76bba8) and cleared on the ground. `tune{air_jumps = n}` clears it again n times a flight, and lends the
+  flag while the player is in the air if the ability is not owned. `mp_regen` and `boost_gain` scale what a
+  step added to the MP (0x76a738) and to the Boost gauge (0x76c1b4).
+
+## Doors and spawns, again
+
+- At a door's change the fade's commit (0x4108e1) calls the scene request with the door's scene still staged
+  at 0x769fb8 and its descriptor at 0x769fbc; the door's label is 0x14 into the descriptor. The "exit" filter
+  now has `door` and `index` (the pool's entry with that descriptor). Driven: `take_exit(1)` from S_2013 gave
+  `door=S_2080 index=1`.
+- The "spawn" filter may answer another cast: the monster built is removed and that one built where it stood
+  (its level is its own cast's). Driven in S_2004: six of cast 55 became cast 15, with twice their HP.
+
+## Saves and Steam
+
+- **With Steam the saves are not files of the game's.** The save, the load and the Load page's look for a slot
+  each try `ISteamRemoteStorage` first (the interface at 0x7493b8: entry 0 FileWrite, 1 FileRead, 6
+  FileDelete, 13 FileExists, 15 GetFileSize), then GOG's (0x7493b4), and only then a file (`CreateFileA`). The
+  names are made in one place, `FUN_005b3700` ("yso_%02d.bin", "yso_%02d.nacci"). On this machine the saves are
+  in Steam's `userdata\<id>\207350\remote\`.
+- A save profile wraps those five entries of the interface's table: a save's name becomes
+  `profiles/<name>/yso_NN.bin` in the same storage. Without Steam the file open is redirected the same way.
+  Driven with a profile "TEST_P": the normal slot 0 was no longer found; a save into slot 5 made
+  `remote\profiles\TEST_P\yso_05.bin` and its sidecar `cleriaore\saves\profiles\TEST_P\yso_05.cleria`, no
+  other save changed, and it loaded back. (The test file was then deleted through the same interface.)
+
+## A mod's boss, a puppet's aura
+
+- **The boss gauge is set by `FUN_0043a460`** (thiscall on the widget 0x6d5fd4: the owner's id, a word not
+  read, the maximum, the bar's length scale; the HP in xmm3), which a boss's handler calls each step. Called
+  the same way for a monster a mod made a boss (`world.form{boss = true}`, `define_boss`): the gauge showed
+  its HP and `world.boss()` gave the actor. 4500 for the length is Nygtilger's.
+- **An effect is made by `FUN_00450410`**, which answers the effect (a GoEffect: its id at +0x1d8, ended by
+  setting its byte +0x1d4). The live ones are the list at 0x7300bc, 0x7300c0 of them. A puppet's `aura` is an
+  effect made on its actor (attach mode 2) and kept by that answer, ended only while it is still in the list.
+  Seen: the Boost's aura (39) on a puppet, following it, gone when set to 0.
+- A puppet made `hittable` gets the kind bits of a body (0x80 | 0x8): the player's hits find it, and the hit's
+  hook raises `puppet_hit` and takes no HP. Driven: Hugo's shot on a Toal puppet.
+
+## Character Select
+
+- Toal is locked on a new game until Yunica (the clear byte 0x74ab7b) or Hugo (0x74ab7a) has cleared the
+  game. Two places read the bytes: the page's setup counts two bars (0x5c3834) and its colours grey the third
+  (0x5c33ff). `game.unlock_character(3)` makes both take Yunica's byte as set for this run; the clear data is
+  not written. This install has all three cleared, so the lock itself could not be seen: only that the page
+  still works with the hooks.
+
+## The frame, for tests
+
+- The drive's `shot <name>` writes the frame as the device holds it at EndScene (the render target, resolved
+  if multisampled, read back) to `drive/<name>.bmp`. Nothing of the desktop is in it, and it does not matter
+  what covers the game's window.
