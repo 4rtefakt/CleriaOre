@@ -35,7 +35,7 @@ What works:
   game's own menus are not told apart) and `state_changed`, a mod's `.dds` images on its HUD layers.
 - `cleria.world`: the room's monsters (`actors`), `to_screen` and the `d:world_*` drawing (the camera the
   game publishes), `set_actor`, `remove`, and `spawn` for a cast the room already holds (the game loads a
-  monster's model with the room). An actor's id is its record's address, good for the room.
+  monster's model with the room). An actor's id is the game's own instance id, good for the room.
 - Game operations: `player.set_position`, `set_mp`, `set_boost`, `set_exp`, heal and hurt, `game.pause`,
   `game.set_speed`, `game.room_title` (the game's scene table; so `floor` and `zone`), `game.goto_room` (the request a script's ChangeScene makes), the random seed, a sound of the game's (`audio.se`), `camera.get`, `player.pose` and `familiars`, `player.tune` (speed and jump; not the MP, Boost and air-jump keys), `player.set_invulnerable`, a script's hits (`combat.damage` on a monster, `combat.strike` on the player, without the flinch), `world.boss` (the gauge; no `actor` for a boss built of map objects) and `combat.boss_bonus`. The "damage" filter also sees the player's hits on a boss's parts. What was learnt of the retail game for these is in [RETAIL_RE.md](RETAIL_RE.md).
 - `content/*.ini`: `chests.ini`, `rules.ini`, `pickups.ini` (items of the game's own), new items
@@ -62,8 +62,12 @@ What works:
 The hooks are for one build only, the Steam `yso_win.exe` linked 2024-01-08: on any other exe nothing is
 hooked and the log says so.
 
-What does not exist yet, so a script's call answers its default: puppets and monster variants
-(`world.puppet`, `world.form`, `content.define_monster`), the world filters (`spawn`, `exit`), the camera's and the fader's writes, music, the
+- Puppets (`world.puppet`, `set_puppet`, `remove_puppet`, `prop`: any of the three characters or a cast's
+  sprite as an actor the mod moves; not `hittable`, `target`, `glow`, `aura`), `world.form` (the numbers and
+  `ai`; not the look), `world.snapshot` and `world.apply`, `world.spawn` for any monster cast.
+
+What does not exist yet, so a script's call answers its default: monster variants
+(`content.define_monster`), the world filters (`spawn`, `exit`), a puppet's effects and bullets, the camera's and the fader's writes, music, the
 exits, `new_game` / `load` / `retry`, the equipment and the ailments, the shop filter and `blessing_bought`,
 item icons, `unlock_character`, the save profiles, `text*.ini`, and the
 load order in the game's panel. Co-op needs most of the first line.

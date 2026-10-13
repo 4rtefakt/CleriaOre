@@ -70,3 +70,37 @@ The notes themselves are gathered in the `yso` repository.
   of walking covered 6.92 units, 14.41 at a factor of 2, 3.46 at 0.5; a held jump peaked 2.68 above the
   floor, 8.2 at a factor of 1.5, 0.53 at 0.5. Backs `player.tune` (speed, jump).
 - The WASD preset's keys, for the drive: jump is the right mouse button (`101`), attack the left (`100`).
+
+## Actors: holding, drawing, puppets
+
+- **Every actor is updated through one function**, `FUN_0045a2f0` (the third entry of GoActor's vtable
+  `0x69ba3c`): a jump to the actor's handler, by its index at +0x120, in the table at `0x69b8c0`. Hooked: an
+  actor a mod holds is not updated.
+- **A handler hands its own actor to the frame's draw list.** An actor whose handler is skipped is frozen
+  and also invisible. `FUN_00473540(ecx = actor)` is the drawing half alone (what a handler itself calls on
+  a step that is not a real one); the hook calls it for a held actor. It draws between the previous
+  position (+0x3d4) and the current one (+0x50), so both are written when an actor is moved. Driven in
+  S_1001: nine monsters held, frozen and visible; moved by `world.apply`; released, they act again.
+- **An actor's instance id (+0x14) is its class in the high byte and a counter in the rest**, restarted with
+  each room: the player 0x01000001 after a load, the room's monsters then 9, 11, 13... in the script's
+  order. It is what `world.actors()` gives as `id` now (it was the record's address).
+- **The sheet of an animation state can be changed freely, and the game loads a sheet when it is first
+  drawn.** Writing +0x97c on a held monster drew it as Hugo (16), Yunica (15) and Toal (17) while playing
+  Hugo, in a room that had never shown them.
+- **The two name tables.** ASO (animation scripts): 185 names at `0x68a510`, indexed by CASTINFO +0x68
+  (which the factory copies to the actor's +0x24c and +0x978). AIA (sheets): 269 names at `0x68a800`,
+  indexed by the animation state's sheet. A cast's sheet is its ASO name looked up in the AIA table: cast
+  14 is ASO 13 `m_100`, sheet 18; cast 19 sheet 23; Hugo's Eye, cast 176, ASO 175 `m_900`, sheet 255.
+  CASTINFO is at `DAT_0074c11c`, 0x200 a record, its count at `DAT_0074c100`, a record's name at +0 (not a
+  file name).
+- **The monster factory builds any cast in any room** (`FUN_00475710`): cast 14 and 19 in S_2013, which has
+  no monster. `world.spawn` no longer asks for a cast the room holds. Building an Eye (cast 176) made the
+  game add two more live Eyes; building the player's own cast (13) made nothing else, and the player
+  pointer stayed.
+- **A puppet** is therefore an actor built as the player's cast, held from its first step, neither solid
+  nor an enemy (kind bits 0x80 and 0x8 cleared), with its sheet, tag and frame written by the mod. Driven
+  in S_2013: Yunica and Toal beside Hugo, one of them led round the player every frame, an Eye prop and a
+  monster prop; `familiars` still 2, `actors` 0; gone with the room. Backs `world.puppet`, `set_puppet`,
+  `remove_puppet`, `prop`.
+- `world.apply` does not build a monster that the snapshot has and the room has not (an id cannot be given
+  to a new actor), and a monster it lets fall drops its items.

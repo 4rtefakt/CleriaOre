@@ -87,6 +87,7 @@ double boss_bonus(double n);
 void set_tune(const std::string& mod, int key, double factor);
 double tune(int key);
 void tune_tick();                                    // host.cpp: the player's actor follows, each step
+bool actor_held(const void* actor);                  // host.cpp: a mod holds this actor's handler (world.form ai = false, world.apply)
 // For the overlay (ui.cpp, the game thread):
 std::vector<cleria::mods::Mod>& mod_list();                           // every mod found, in load order
 std::vector<std::unique_ptr<cleria::script::Mod>>& scripts();         // the started scripts

@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <set>
 #include <windows.h>
 #include <shellapi.h>
 
@@ -258,15 +259,52 @@ struct RetailHost : script::Host {
     template <class T>
     static T& in(char* actor, std::size_t off) { return *reinterpret_cast<T*>(actor + off); }
     static bool monster(char* a) {
-        return a && (in<std::uint32_t>(a, kAKind) & kKindEnemy) && in<std::int32_t>(a, kACast) != 13 && in<float>(a, kAHp) >= 1.0f &&
+        return a && !puppet_set().count(a) && (in<std::uint32_t>(a, kAKind) & kKindEnemy) && in<std::int32_t>(a, kACast) != 13 && in<float>(a, kAHp) >= 1.0f &&
                !(in<std::uint8_t>(a, kADead) & 2);
     }
     // A monster by the id world.actors() gave it: its place in the live list + 1 would move as others die, so the
     // id is the record's own address.
+    static int actor_id(char* a) { return in<std::int32_t>(a, 0x14); }
+    // The actors whose handler a mod holds. A room's actors are rebuilt with it: the set is the room's.
+    static std::set<const void*>& held_set() { static std::set<const void*> s; return s; }
+    // The puppets: actors a mod builds and moves itself (another player, a prop). Held from their first step.
+    static std::set<const void*>& puppet_set() { static std::set<const void*> s; return s; }
+    static void held_room() {                                                     // another room: nobody is held, no puppet is left
+        static std::int32_t room = 0;
+        if (room == at<std::int32_t>(0x76b91c + 4 * kFlagScene)) return;
+        held_set().clear();
+        puppet_set().clear();
+        room = at<std::int32_t>(0x76b91c + 4 * kFlagScene);
+    }
+    // A cast's sprite sheet. CASTINFO +0x68 (the table at DAT_0074c11c, 0x200 a record, 186 records) is the cast's
+    // animation script, an index of the ASO name table (185 names at 0x68a510: "m_100"); the sheet is the same name
+    // in the AIA name table (269 names at 0x68a800). -1: none.
+    static int cast_sheet(int cast) {
+        const char* info = at<const char*>(0x74c11c);
+        if (!info || cast < 0 || cast >= 186) return -1;
+        const std::int32_t aso = *reinterpret_cast<const std::int32_t*>(info + std::size_t(cast) * 0x200 + 0x68);
+        if (aso < 0 || aso >= 185) return -1;
+        const char* name = at<const char*>(0x68a510 + 4 * aso);
+        for (int i = 0; i < 269; ++i)
+            if (const char* s = at<const char*>(0x68a800 + 4 * i); s && _stricmp(s, name) == 0) return i;
+        return -1;
+    }
+    static char* find_puppet(int id) {
+        held_room();
+        const int n = at<std::int32_t>(kActorCount);
+        for (int i = 0; i < n && i < 256; ++i)
+            if (char* a = actor_at(i); a && actor_id(a) == id && puppet_set().count(a) && !(in<std::uint8_t>(a, kADead) & 2)) return a;
+        return nullptr;
+    }
+    static void hold(char* a, bool on) {
+        held_room();
+        if (on) held_set().insert(a);
+        else held_set().erase(a);
+    }
     static char* find_monster(int id) {
         const int n = at<std::int32_t>(kActorCount);
         for (int i = 0; i < n && i < 256; ++i)
-            if (char* a = actor_at(i); a && int(reinterpret_cast<std::uintptr_t>(a)) == id && monster(a)) return a;
+            if (char* a = actor_at(i); a && actor_id(a) == id && monster(a)) return a;
         return nullptr;
     }
     std::vector<ActorInfo> actors() override {
@@ -277,7 +315,7 @@ struct RetailHost : script::Host {
             char* a = actor_at(i);
             if (!monster(a)) continue;
             ActorInfo o;
-            o.id = int(reinterpret_cast<std::uintptr_t>(a));
+            o.id = actor_id(a);
             o.cast = in<std::int32_t>(a, kACast);
             o.level = in<std::int32_t>(a, kALevel);
             o.hp = in<float>(a, kAHp);
@@ -374,19 +412,14 @@ struct RetailHost : script::Host {
             return true;
         }
         if (op == "spawn_actor") {
-            // (cast, x, y, z, level, yaw, group). A cast the room already holds: the game loads a monster's
-            // model and sprites with the room, and one it has not loaded has nothing to draw with.
+            // (cast, x, y, z, level, yaw, group). Any monster cast: the game loads a sheet when it is first drawn.
             if (n.size() < 4 || !out) return false;
             const int cast = int(n[0]);
-            bool loaded = false;
-            const int count = at<std::int32_t>(kActorCount);
-            for (int i = 0; i < count && i < 256 && !loaded; ++i)
-                if (char* a = actor_at(i)) loaded = (in<std::uint32_t>(a, kAKind) & kKindEnemy) && in<std::int32_t>(a, kACast) == cast;
-            if (!loaded || count >= 120) return false;
+            if (cast < 14 || cast >= 186 || cast_sheet(cast) < 0 || at<std::int32_t>(kActorCount) >= 120) return false;
             const float pos[3] = {float(n[1]), float(n[2]), float(n[3])};
             char* a = spawn_monster(cast, int(arg(5)), pos);
             if (!a) return false;
-            *out = {double(int(reinterpret_cast<std::uintptr_t>(a)))};
+            *out = {double(actor_id(a))};
             return true;
         }
         if (op == "se") { play_sound(int(arg(0)), int(std::clamp(arg(1, 1.0), 0.0, 4.0) * 0x400)); return true; }
@@ -440,7 +473,7 @@ struct RetailHost : script::Host {
             double id = 0;
             const int count = at<std::int32_t>(kActorCount);
             for (int i = 0; i < count && i < 256; ++i)
-                if (char* a = actor_at(i); a && in<std::int32_t>(a, 0x14) == owner && monster(a)) id = double(int(reinterpret_cast<std::uintptr_t>(a)));
+                if (char* a = actor_at(i); a && actor_id(a) == owner && monster(a)) id = double(owner);
             *out = {id, double(at<float>(0x6d5fd4 + 0x30)), double(at<float>(0x6d5fd4 + 0x38))};
             return true;
         }
@@ -451,8 +484,19 @@ struct RetailHost : script::Host {
                     ore::log("[actors] %2d %p vt %08x kind %08x cast %3d id %5d hp %.0f/%.0f flags %08x dead %02x pos %.1f %.1f %.1f", i, a,
                         in<std::uint32_t>(a, 0), in<std::uint32_t>(a, kAKind), in<std::int32_t>(a, kACast), in<std::int32_t>(a, 0x14),
                         in<float>(a, kAHp), in<float>(a, kAMaxHp), in<std::uint32_t>(a, 0x12c), in<std::uint8_t>(a, kADead),
-                        in<float>(a, kAPos), in<float>(a, kAPos + 4), in<float>(a, kAPos + 8));
-            ore::log("[actors] gauge owner %d", at<std::int32_t>(0x6d5fd8));
+                        in<float>(a, kAPos), in<float>(a, kAPos + 4), in<float>(a, kAPos + 8)),
+                    ore::log("[actors]    +0x24c %d, state: sheet %d tag %d frame %d, +0x8f0 %08x +0x978 %d", in<std::int32_t>(a, 0x24c), in<std::int32_t>(a, 0x97c),
+                             in<std::int32_t>(a, 0x9b0), in<std::int32_t>(a, 0x9b8), in<std::uint32_t>(a, 0x8f0), in<std::int32_t>(a, 0x978));
+            for (int i = 0; i < count && i < 256; ++i)
+                if (char* a = actor_at(i)) {
+                    const unsigned char* d = in<const unsigned char*>(a, 0x8f0);
+                    std::string hex;
+                    char t[4];
+                    for (int k = 0; d && k < 0xb0; ++k) { std::snprintf(t, sizeof t, "%02x", d[k]); hex += t; if (k % 4 == 3) hex += ' '; }
+                    ore::log("[actors] def of cast %d: %s", in<std::int32_t>(a, kACast), hex.c_str());
+                }
+            ore::log("[actors] gauge owner %d; sheets of casts 13 %d, 14 %d, 19 %d, 176 %d", at<std::int32_t>(0x6d5fd8), cast_sheet(13), cast_sheet(14),
+                     cast_sheet(19), cast_sheet(176));
             return true;
         }
         // An actor's animation state is the object embedded at +0x8f0 (FUN_00446220 and FUN_00446340 run on it): the sheet (an index of the
@@ -476,6 +520,116 @@ struct RetailHost : script::Host {
                                  double(in<std::int32_t>(a, 0x97c))})
                     out->push_back(v);
             }
+            return true;
+        }
+        // A monster's numbers scaled, and its handler held or let go (world.form). The look (scale, tint, name) is
+        // not backed.
+        if (op == "actor_form") {
+            char* a = find_monster(int(arg(0, -1)));
+            if (!a) return false;
+            auto mul = [&](std::size_t i) { const double v = arg(i, NAN); return std::isfinite(v) ? float(std::clamp(v, 0.01, 1000.0)) : 1.0f; };
+            if (mul(1) != 1.0f) { in<float>(a, kAMaxHp) = (std::max)(1.0f, in<float>(a, kAMaxHp) * mul(1)); in<float>(a, kAHp) = in<float>(a, kAMaxHp); }
+            in<float>(a, kAAtk) *= mul(2);
+            in<float>(a, kADef) *= mul(3);
+            in<float>(a, 0xb0) *= mul(4);
+            in<std::int32_t>(a, 0xc4) = int(float(in<std::int32_t>(a, 0xc4)) * mul(5));
+            if (std::isfinite(arg(8, NAN))) hold(a, arg(8) == 0);
+            return true;
+        }
+        if (op == "world_snapshot") {                                             // 12 numbers a monster: id cast level x y z yaw hp max_hp tag frame sheet
+            if (!out) return false;
+            out->clear();
+            const int count = at<std::int32_t>(kActorCount);
+            for (int i = 0; i < count && i < 256; ++i) {
+                char* a = actor_at(i);
+                if (!monster(a)) continue;
+                out->insert(out->end(), {double(actor_id(a)), double(in<std::int32_t>(a, kACast)), double(in<std::int32_t>(a, kALevel)),
+                                         double(in<float>(a, kAPos)), double(in<float>(a, kAPos + 4)), double(in<float>(a, kAPos + 8)),
+                                         double(in<float>(a, kAYaw) * 57.29577951f), double(in<float>(a, kAHp)), double(in<float>(a, kAMaxHp)),
+                                         double(in<std::int32_t>(a, 0x9b0)), double(in<std::int32_t>(a, 0x9b8)), double(in<std::int32_t>(a, 0x97c))});
+            }
+            return true;
+        }
+        // The room's monsters made to match a snapshot (flags: 1 hold their handlers, 2 the others fall; then 12 a
+        // monster) -> how many matched. A monster that is in the snapshot and not here is not built: an id is the
+        // game's own and cannot be given to a new actor.
+        if (op == "world_apply") {
+            if (!alive || n.empty()) return false;
+            const bool held = (int(n[0]) & 1) != 0, sweep = (int(n[0]) & 2) != 0;
+            auto fall = [&](char* a) {                                            // it died over there: its death here, no EXP, no SP
+                hold(a, false);
+                in<std::uint32_t>(a, 0x12c) |= 0x4000000u;
+                in<float>(a, kAHp) = 0;
+                in<std::uint32_t>(a, 0x3bc) |= 0x16u;
+            };
+            std::set<int> seen;
+            int done = 0;
+            for (std::size_t i = 1; i + 12 <= n.size(); i += 12) {
+                const int id = int(n[i]);
+                char* a = find_monster(id);
+                if (!a || in<std::int32_t>(a, kACast) != int(n[i + 1])) continue;
+                seen.insert(id);
+                if (n[i + 7] < 1.0) { fall(a); continue; }
+                const float p[3] = {float(n[i + 3]), float(n[i + 4]), float(n[i + 5])};
+                std::memcpy(a + kAPos, p, sizeof p);
+                std::memcpy(a + 0x3d4, p, sizeof p);                              // the previous step's: the draw goes between the two
+                in<float>(a, kAYaw) = float(n[i + 6]) / 57.29577951f;
+                in<float>(a, kAMaxHp) = (std::max)(1.0f, float(n[i + 8]));
+                in<float>(a, kAHp) = (std::min)(float(n[i + 7]), in<float>(a, kAMaxHp));
+                if (held) {
+                    hold(a, true);
+                    if (n[i + 9] >= 0) { in<std::int32_t>(a, 0x9b0) = int(n[i + 9]); in<std::int32_t>(a, 0x9b8) = (std::max)(0, int(n[i + 10])); }
+                    if (n[i + 11] >= 0 && n[i + 11] < 269) in<std::int32_t>(a, 0x97c) = int(n[i + 11]);   // the AIA name table has 269 entries
+                }
+                ++done;
+            }
+            if (sweep) {
+                const int count = at<std::int32_t>(kActorCount);
+                for (int i = 0; i < count && i < 256; ++i)
+                    if (char* a = actor_at(i); monster(a) && !seen.count(actor_id(a))) fall(a);
+            }
+            if (out) *out = {double(done)};
+            return true;
+        }
+        // A puppet is an actor of the game's own, built by its monster factory, whose handler never runs (it is held)
+        // and whose animation state the mod writes: the sheet (15 Yunica, 16 Hugo, 17 Toal; the game loads a sheet
+        // when it is first drawn), the tag, the frame. It is not solid and not an enemy: nothing hits it.
+        if (op == "puppet_spawn" || op == "prop_spawn") {                         // (character 1..3 | cast, x, y, z, yaw) -> its id
+            if (!alive || n.size() < 4 || !out || at<std::int32_t>(kActorCount) >= 120) return false;
+            const bool prop = op == "prop_spawn";
+            const int sheet = prop ? cast_sheet(int(n[0])) : 14 + std::clamp(int(n[0]), 1, 3);
+            if (sheet < 0) return false;
+            const float pos[3] = {float(n[1]), float(n[2]), float(n[3])};
+            // Built as the player's own cast, whose factory makes nothing else (an Eye's adds two more Eyes).
+            char* a = spawn_monster(in<std::int32_t>(player, kACast), int(arg(4)), pos);
+            if (!a) return false;
+            in<float>(a, kAHp) = in<float>(a, kAMaxHp) = 1.0f;                    // the player's cast has no monster record: its HP is noise
+            held_room();
+            puppet_set().insert(a);
+            held_set().insert(a);
+            in<std::uint32_t>(a, kAKind) &= ~(kKindSolid | kKindEnemy);
+            std::memcpy(a + 0x3d4, pos, sizeof pos);
+            in<std::int32_t>(a, 0x97c) = sheet;
+            in<std::int32_t>(a, 0x9b0) = 2;                                       // standing
+            in<std::int32_t>(a, 0x9b8) = 0;
+            *out = {double(actor_id(a))};
+            return true;
+        }
+        if (op == "puppet_set" || op == "puppet_remove") {
+            char* a = find_puppet(int(arg(0, -1)));
+            if (!a) return false;
+            if (op == "puppet_remove") {
+                in<std::uint8_t>(a, kADead) |= 2;
+                puppet_set().erase(a);
+                held_set().erase(a);
+                return true;
+            }
+            for (std::size_t k = 0; k < 3; ++k)
+                if (n.size() > 1 + k && std::isfinite(n[1 + k])) in<float>(a, kAPos + 4 * k) = in<float>(a, 0x3d4 + 4 * k) = float(n[1 + k]);
+            if (n.size() > 4 && std::isfinite(n[4])) in<float>(a, kAYaw) = float(n[4]) / 57.29577951f;
+            if (n.size() > 5 && std::isfinite(n[5])) in<std::int32_t>(a, 0x9b0) = int(n[5]);
+            if (n.size() > 6 && std::isfinite(n[6])) in<std::int32_t>(a, 0x9b8) = (std::max)(0, int(n[6]));
+            if (n.size() > 7 && std::isfinite(n[7]) && n[7] >= 0 && n[7] < 269) in<std::int32_t>(a, 0x97c) = int(n[7]);
             return true;
         }
         if (op == "tune") {                                                       // (key, factor): speed 0, jump 1; the rest is not backed
@@ -706,6 +860,12 @@ script::Host& host() {
 // The player's motion constants are copied from CASTINFO into its actor when it is built (each room): the speed
 // base at +0x30c (CASTINFO +0x48), the jump's first velocity at +0x408. The mods' factors are kept on top of
 // whatever the game last put there.
+bool actor_held(const void* actor) {
+    const auto& s = RetailHost::held_set();
+    if (s.empty()) return false;
+    RetailHost::held_room();
+    return s.count(actor) != 0;
+}
 void tune_tick() {
     static float wrote[2] = {0, 0}, base[2] = {0, 0};
     static const std::size_t off[2] = {0x30c, 0x408};

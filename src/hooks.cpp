@@ -64,6 +64,28 @@ int __fastcall hook_read(Reader* r, void*, void* dst, std::uint32_t n, std::uint
 // they floor the award.
 constexpr std::uintptr_t kExpRate = 0x76a5fc;
 constexpr std::uintptr_t kDealt = 0x4fc802, kTaken = 0x4fdc58, kExpKill = 0x4fcc07, kKill = 0x4fcc18, kExpBoss = 0x4fa525, kExpOther = 0x5226c7;
+// FUN_0045a2f0, GoActor's update (its vtable's third entry): a jump to the actor's handler, by its index at +0x120.
+// An actor a mod holds is not updated: it stays where and as it was put. It is still drawn: a handler hands its
+// actor to the frame's draw list itself, so the hook does that part (FUN_00473540) in the handler's place.
+constexpr std::uintptr_t kActorUpdate = 0x45a2f0;
+constexpr std::uint8_t kActorUpdateBytes[] = {0x8b, 0x81, 0x20, 0x01, 0x00, 0x00, 0x8b, 0x04, 0x85, 0xc0, 0xb8, 0x69, 0x00, 0xff, 0xe0};
+void* g_actor_update = nullptr;
+bool __cdecl held(const void* actor) { return actor_held(actor); }
+__declspec(naked) void hook_actor_update() {
+    __asm {
+        push ecx
+        push ecx
+        call held
+        add  esp, 4
+        pop  ecx
+        test al, al
+        jnz  skip
+        jmp  dword ptr [g_actor_update]
+    skip:
+        mov  eax, 0x473540              // FUN_00473540(ecx actor): what a handler does on a step that is not a real one,
+        jmp  eax                        // the actor's place and sprite handed to the frame's draw list
+    }
+}
 // FUN_004faf20, the applier of a hit on anything that is not a monster (a map object: a boss's part, a breakable):
 //   0x4fb0ae  call FUN_004fa550         the damage, in eax; esi the victim
 //   0x4fb0b3  mov edx, [esi] ; add esp, 8
@@ -537,6 +559,7 @@ const Site kSites[] = {
     SITE(kExpKill, kExpKillBytes, &hook_exp_kill, &g_exp_kill), SITE(kKill, kKillBytes, &hook_kill, &g_kill),
     SITE(kExpBoss, kExpAddBytes, &hook_exp_boss, &g_exp_boss), SITE(kExpOther, kExpAddBytes, &hook_exp_other, &g_exp_other),
     SITE(kRecompute, kRecomputeBytes, &hook_recompute, &g_recompute), SITE(kPart, kPartBytes, &hook_part, &g_part),
+    SITE(kActorUpdate, kActorUpdateBytes, &hook_actor_update, &g_actor_update),
     SITE(kSpawn, kSpawnBytes, &hook_spawn, &g_spawn),       SITE(kTouch, kTouchBytes, &hook_touch, &g_touch),
 };
 #undef SITE
