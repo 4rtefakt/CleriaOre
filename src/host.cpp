@@ -1136,6 +1136,15 @@ struct RetailHost : script::Host {
         at<char>(kSaveSlot) = char(slot);
         return write_save(file) >= 0;
     }
+    // The save profile: only while no game runs (the title), so a running game's saves never change folder.
+    bool set_save_profile(const std::string& name) override {
+        const std::string was = ore::save_profile();
+        if (in_game() || !ore::set_save_profile(name)) return false;
+        profile_storage();
+        if (ore::save_profile() != was) ui_notice("Save profile", ore::save_profile().empty() ? "The normal saves" : ore::save_profile());
+        return true;
+    }
+    std::string save_profile() override { return ore::save_profile(); }
 };
 
 }  // namespace

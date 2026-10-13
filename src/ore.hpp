@@ -85,6 +85,11 @@ void on_new_game();                    // the title started a game: the flags we
 void on_loaded(const char* file);      // a save was read into the game
 void on_saved(const char* file);       // a save was written
 cleria::Sidecar& sidecar();            // what the mods keep with this session's save
+const std::string& save_profile();     // the save profile, "" = the game's own saves
+bool set_save_profile(const std::string& name);   // false: not a usable name
+bool save_name(const char* base);      // hooks.cpp: a save file's name (yso_NN.bin, yso_NN.nacci)
+bool profile_storage();                // hooks.cpp: Steam's storage follows the save profile; false: there is none (yet)
+bool steam_delete(const char* name);   // hooks.cpp: for the drive's tests
 bool session_pending();                // a new game / a load whose event was not delivered yet
 int room_ticks();                      // the steps since the room was entered
 // What the scripts share (the game thread):

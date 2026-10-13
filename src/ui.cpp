@@ -238,6 +238,8 @@ void drive_poll() {
             if (l.empty()) continue;
             if (l == "panel") { g_panel.open = !g_panel.open; continue; }
             if (l.rfind("shot ", 0) == 0) { g_drive_shot = l.substr(5); continue; }   // this frame, as drive/<name>.bmp
+            if (l.rfind("profile", 0) == 0) { set_save_profile(l.size() > 8 ? l.substr(8) : std::string()); profile_storage(); continue; }   // for tests: at any time
+            if (l.rfind("steamrm ", 0) == 0) { log("[drive] %s: %s", l.c_str(), steam_delete(l.c_str() + 8) ? "deleted" : "no"); continue; }
             if (l == "rawactors") { host().game_op("drive", "actors_raw", {}, {}, nullptr); continue; }   // the live list, to the log
             // For study: "peek <addr> [n]" logs n dwords, "poke <addr> <value>" writes one; hexadecimal, and "p+off"
             // for an offset into the player's actor.

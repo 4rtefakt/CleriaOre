@@ -888,6 +888,20 @@ HANDLE WINAPI hook_create_w(LPCWSTR name, DWORD access, DWORD share, LPSECURITY_
 }
 HANDLE WINAPI hook_create_a(LPCSTR name, DWORD access, DWORD share, LPSECURITY_ATTRIBUTES sa, DWORD how, DWORD flags, HANDLE tmpl) {
     std::wstring to;
+    // A save profile: the game's save files (yso_NN.bin, yso_NN.nacci; found, read and written by this one call)
+    // are one folder down, profiles/<name>/, made when a save is written there.
+    if (name && !save_profile().empty()) {
+        const char* base = (std::max)(std::strrchr(name, '\\'), std::strrchr(name, '/'));
+        base = base ? base + 1 : name;
+        if (save_name(base)) {
+            const std::string folder = std::string(name, std::size_t(base - name)) + "profiles\\" + save_profile();
+            if (how == CREATE_ALWAYS || how == CREATE_NEW || how == OPEN_ALWAYS) {
+                std::error_code ec;
+                std::filesystem::create_directories(folder, ec);
+            }
+            return g_create_a((folder + "\\" + base).c_str(), access, share, sa, how, flags, tmpl);
+        }
+    }
     if (name) {
         wchar_t wide[MAX_PATH * 2];
         if (MultiByteToWideChar(CP_ACP, 0, name, -1, wide, MAX_PATH * 2) > 0 && music_redirect(wide, to))
@@ -936,8 +950,68 @@ bool install_hooks() {
     return g_hooked;
 }
 
-bool hooked() { return g_hooked; }
+// A save file's name: yso_NN.bin, yso_NN.nacci.
+bool save_name(const char* base) {
+    return _strnicmp(base, "yso_", 4) == 0 && std::isdigit(static_cast<unsigned char>(base[4])) && std::isdigit(static_cast<unsigned char>(base[5])) &&
+           (_stricmp(base + 6, ".bin") == 0 || _stricmp(base + 6, ".nacci") == 0);
+}
+// With Steam the saves are not files of the game's: it writes, reads, finds, sizes and deletes them through
+// ISteamRemoteStorage (the interface at 0x7493b8; entries 0 FileWrite, 1 FileRead, 6 FileDelete, 13 FileExists,
+// 15 GetFileSize), by name. Those five entries of its table are wrapped: under a save profile a save's name becomes
+// profiles/<name>/yso_NN.bin, in the same storage.
+constexpr int kRsSlot[5] = {0, 1, 6, 13, 15};
+void* g_rs[5] = {};
+const char* profiled(const char* name, std::string& hold) {
+    if (!name || save_profile().empty() || !save_name(name)) return name;
+    hold = "profiles/" + save_profile() + "/" + name;
+    return hold.c_str();
+}
+bool __fastcall rs_write(void* self, void*, const char* name, const void* data, int n) {
+    std::string h;
+    return reinterpret_cast<bool(__thiscall*)(void*, const char*, const void*, int)>(g_rs[0])(self, profiled(name, h), data, n);
+}
+int __fastcall rs_read(void* self, void*, const char* name, void* data, int n) {
+    std::string h;
+    return reinterpret_cast<int(__thiscall*)(void*, const char*, void*, int)>(g_rs[1])(self, profiled(name, h), data, n);
+}
+bool __fastcall rs_delete(void* self, void*, const char* name) {
+    std::string h;
+    return reinterpret_cast<bool(__thiscall*)(void*, const char*)>(g_rs[2])(self, profiled(name, h));
+}
+bool __fastcall rs_exists(void* self, void*, const char* name) {
+    std::string h;
+    return reinterpret_cast<bool(__thiscall*)(void*, const char*)>(g_rs[3])(self, profiled(name, h));
+}
+int __fastcall rs_size(void* self, void*, const char* name) {
+    std::string h;
+    return reinterpret_cast<int(__thiscall*)(void*, const char*)>(g_rs[4])(self, profiled(name, h));
+}
+// Wraps them, once Steam's storage is there (false: not yet, or no Steam: then the saves are files, and
+// hook_create_a moves them).
+bool profile_storage() {
+    void* rs = g_hooked ? *reinterpret_cast<void**>(0x7493b8) : nullptr;
+    if (!rs) return false;
+    if (g_rs[0]) return true;
+    void** vt = *reinterpret_cast<void***>(rs);
+    void* const mine[5] = {&rs_write, &rs_read, &rs_delete, &rs_exists, &rs_size};
+    for (int i = 0; i < 5; ++i) {
+        DWORD old = 0;
+        if (!VirtualProtect(&vt[kRsSlot[i]], sizeof(void*), PAGE_READWRITE, &old)) return false;
+        g_rs[i] = vt[kRsSlot[i]];
+        vt[kRsSlot[i]] = mine[i];
+        VirtualProtect(&vt[kRsSlot[i]], sizeof(void*), old, &old);
+    }
+    log("[save] Steam's storage wrapped for the save profiles");
+    return true;
+}
+bool steam_delete(const char* name) {   // the drive's, for tests: a file of Steam's storage by its full name
+    void* rs = g_hooked ? *reinterpret_cast<void**>(0x7493b8) : nullptr;
+    if (!rs) return false;
+    void** vt = *reinterpret_cast<void***>(rs);
+    return reinterpret_cast<bool(__thiscall*)(void*, const char*)>(g_rs[2] ? g_rs[2] : vt[6])(rs, name);
+}
 
+bool hooked() { return g_hooked; }
 bool spawn_pickup(int item, const float* pos, bool resting) {
     if (!g_hooked) return false;
     int id = item;

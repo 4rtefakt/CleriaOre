@@ -64,7 +64,10 @@ int slot_of(const char* file) {
     return slot;
 }
 
-fs::path save_file(const char* file) { return dir() / "saves" / fs::path(file).filename(); }
+// The save profile (CleriaCore's cleria.save.set_profile): "" = the game's own saves, else the game's save files
+// and their sidecars are kept one folder down, profiles/<name>/ (hooks.cpp redirects the game's file opens).
+std::string g_profile;
+fs::path save_file(const char* file) { return save_profile_dir(dir() / "saves", g_profile) / fs::path(file).filename(); }
 
 // ---- what CleriaCore's content layer reports (its view_content.inl), read off the retail game ----------
 constexpr int kFlagFight = 156, kFlagRun = 193, kFlagScene = 0x1f9, kPanacea = 0x59;
@@ -262,6 +265,14 @@ void set_pause(const std::string& mod, bool on) {
     else g_pause.erase(mod);
 }
 bool paused() { return !g_pause.empty(); }
+const std::string& save_profile() { return g_profile; }
+bool set_save_profile(const std::string& raw) {
+    const std::string n = save_profile_name(raw);
+    if (n.empty() && !raw.empty()) return false;
+    if (n != g_profile) log("[save] profile \"%s\"", n.c_str());
+    g_profile = n;
+    return true;
+}
 void set_tune(const std::string& mod, int key, double factor) {
     g_tune.try_emplace(mod, std::array<double, 6>{1, 1, 1, 1, 1, 0}).first->second[std::size_t(key)] = factor;
 }
