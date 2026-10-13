@@ -277,6 +277,10 @@ struct RetailHost : script::Host {
     }
     // The loader's own commands, for what the mod API has no call for (cleria.mods.command(name, args)):
     //   ore.title new_game                      the title's own New Game, past a mod's "title_new_game" command
+    //   ore.menu id|caption|row|row...          a menu of the game's own; a pick runs the mod's command "menu_<id>"
+    //                                           with the row (1..), Esc picks the last row; "id:3" starts on row 3
+    //   ore.prompt id|caption|text[|secret]     a line typed in such a menu (Enter keeps, Esc drops, Ctrl+V pastes):
+    //                                           "menu_<id>" gets "ok <text>" or "cancel"
     //   ore.new_game character=2 difficulty=2 extra=0 room=S_1000 flags=246:1,300:1
     //                                           a new game at once (each key optional): the scene it begins in, and
     //                                           flags set after the game's reset, before that scene's script
@@ -287,6 +291,41 @@ struct RetailHost : script::Host {
             if (args != "new_game" || game_state() != "title") return true;
             title_run();
             *ran = true;
+        } else if (name == "ore.menu") {                                           // "id[:cursor]|caption|row|row..."; no argument closes it
+            if (args.empty()) { game_menu_close(); *ran = true; return true; }
+            std::vector<std::wstring> parts;
+            std::string id;
+            int cursor = 1;
+            std::istringstream in(args);
+            for (std::string part; std::getline(in, part, '|');) {
+                if (id.empty()) {
+                    const std::size_t colon = part.find(':');
+                    id = part.substr(0, colon);
+                    if (colon != std::string::npos) cursor = std::atoi(part.c_str() + colon + 1);
+                    continue;
+                }
+                std::wstring w(part.size() + 1, L'\0');
+                w.resize(std::size_t((std::max)(0, MultiByteToWideChar(CP_UTF8, 0, part.c_str(), int(part.size()), w.data(), int(w.size())))));
+                parts.push_back(w);
+            }
+            if (id.empty() || parts.size() < 2) return true;
+            const std::wstring caption = parts.front();
+            parts.erase(parts.begin());
+            // On the title it stands where the title's own list does, its last row at the bottom; elsewhere in the middle.
+            const float rows = float(parts.size());
+            const float y = !in_game() ? (std::max)(150.0f, 690.0f - 38.4f * rows) : (std::max)(96.0f, 340.0f - 19.2f * rows);
+            *ran = game_menu(caption, parts, cursor, y);
+            if (*ran) menu_owner(id);
+        } else if (name == "ore.prompt") {                                         // "id|caption|text[|secret]": a line typed in a game menu
+            std::vector<std::string> f;
+            std::istringstream in(args);
+            for (std::string part; std::getline(in, part, '|');) f.push_back(part);
+            if (f.size() < 2 || f[0].empty()) return true;
+            const std::wstring caption(f[1].begin(), f[1].end());
+            const float y = !in_game() ? 690.0f - 38.4f : 320.0f;
+            const std::string first = f.size() > 2 ? f[2] : std::string(), shown = (f.size() > 3 && f[3] == "secret" ? std::string(first.size(), '*') : first) + "_";
+            *ran = game_menu(caption, {std::wstring(shown.begin(), shown.end())}, 1, y);
+            if (*ran) { menu_owner(f[0]); ui_prompt(first, f.size() > 3 && f[3] == "secret"); }
         } else if (name == "ore.new_game") {
             int ch = 1, diff = 2, extra = -1;
             std::string room = "S_0000";

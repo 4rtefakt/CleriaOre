@@ -36,6 +36,30 @@ std::string g_sub;                    // the mod whose page the Mods tab shows (
 bool g_changed = false;               // a mod was turned on or off: it applies at the next start
 DWORD g_closed_at = 0;                // when the panel closed: the keyboard is held a moment longer
 bool g_modal = false;                 // a mod's own window is open: it has the input
+// A line typed into a menu of the game's (ui_prompt): the keys go here, not to the game; the row shows the text.
+bool g_prompting = false, g_prompt_secret = false;
+int g_prompt_done = 0;                // 1 kept (Enter), 2 dropped (Esc): told to the mod at the frame's end
+std::string g_prompt_text;
+bool g_prompt_dirty = false;          // the line changed: shown once, at the frame's end (the menu is made anew for it)
+void prompt_show() { g_prompt_dirty = true; }
+void prompt_key(unsigned ch) {        // a character as WM_CHAR gives it
+    if (ch == 13) g_prompt_done = 1;
+    else if (ch == 27) g_prompt_done = 2;
+    else if (ch == 8) { if (!g_prompt_text.empty()) g_prompt_text.pop_back(); }
+    else if (ch == 0x16) {            // Ctrl+V: the clipboard's first line
+        if (OpenClipboard(nullptr)) {
+            if (HANDLE h = GetClipboardData(CF_TEXT))
+                if (const char* s = static_cast<const char*>(GlobalLock(h))) {
+                    for (; *s && *s != '\r' && *s != '\n' && g_prompt_text.size() < 120; ++s)
+                        if (static_cast<unsigned char>(*s) >= 32) g_prompt_text.push_back(*s);
+                    GlobalUnlock(h);
+                }
+            CloseClipboard();
+        }
+    } else if (ch >= 32 && ch < 256 && ch != 127 && ch != '|' && g_prompt_text.size() < 120) g_prompt_text.push_back(char(ch));
+    if (g_prompt_done) g_prompting = false;
+    else prompt_show();
+}
 bool g_modal_pause = false;           // ... and holds the game
 
 struct Notice { std::string head, text; double t = -100; } g_notice;
@@ -238,7 +262,8 @@ void drive_poll() {
             const std::size_t sp = l.find(' ');
             if (l.empty()) continue;
             if (l == "panel") { g_panel.open = !g_panel.open; continue; }
-            if (l.rfind("nav ", 0) == 0) {                                    // a key for the panel or a mod's window: up down left right ok back
+            if (l.rfind("type ", 0) == 0 && g_prompting) { for (const char c : l.substr(5)) prompt_key(static_cast<unsigned char>(c)); continue; }   // into a prompt
+            if (g_prompting && (l == "nav ok" || l == "nav back")) { prompt_key(l == "nav ok" ? 13 : 27); continue; }            if (l.rfind("nav ", 0) == 0) {                                    // a key for the panel or a mod's window: up down left right ok back
                 static const std::pair<const char*, ImGuiKey> kNav[] = {{"up", ImGuiKey_UpArrow}, {"down", ImGuiKey_DownArrow}, {"left", ImGuiKey_LeftArrow},
                                                                         {"right", ImGuiKey_RightArrow}, {"ok", ImGuiKey_Enter}, {"back", ImGuiKey_Escape}};
                 for (const auto& [word, key] : kNav)
@@ -394,6 +419,11 @@ HRESULT WINAPI hook_end_scene(IDirect3DDevice9* dev) {
     g_modal = window_mod() != nullptr;
     g_modal_pause = g_modal && window_mod()->window()->pause;
     if (was_open && !g_panel.open && !g_modal) g_closed_at = GetTickCount();
+    if (std::exchange(g_prompt_dirty, false) && g_prompting) game_prompt_text((g_prompt_secret ? std::string(g_prompt_text.size(), '*') : g_prompt_text) + "_");
+    if (const int done = std::exchange(g_prompt_done, 0)) {
+        g_closed_at = GetTickCount();                   // (the Enter that ended it is not the game's)
+        on_prompt_done(done == 1, g_prompt_text);
+    }
 
     ImGui::EndFrame();
     ImGui::Render();
@@ -412,7 +442,14 @@ HRESULT WINAPI hook_reset(IDirect3DDevice9* dev, D3DPRESENT_PARAMETERS* pp) {
 // ImGui reads the window's messages; while the panel is open the game's window does not get the keys
 // and the mouse.
 LRESULT CALLBACK hook_wndproc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp) {
-    ImGui_ImplWin32_WndProcHandler(wnd, msg, wp, lp);
+    if (g_prompting && msg >= WM_KEYFIRST && msg <= WM_KEYLAST) {
+        if (msg == WM_CHAR) prompt_key(unsigned(wp));
+        if (msg == WM_KEYDOWN || msg == WM_KEYUP) {     // (the game's own loop may not translate them)
+            MSG m{wnd, msg, wp, lp};
+            TranslateMessage(&m);
+        }
+        return 0;
+    }    ImGui_ImplWin32_WndProcHandler(wnd, msg, wp, lp);
     if ((g_panel.open || g_modal) && ((msg >= WM_KEYFIRST && msg <= WM_KEYLAST) || (msg >= WM_MOUSEFIRST && msg <= WM_MOUSELAST))) return 0;
     return CallWindowProcW(g_wndproc, wnd, msg, wp, lp);
 }
@@ -448,7 +485,7 @@ GetDeviceStateFn g_get_device_state = nullptr;
 // Only the keyboard (its state is 256 key bytes): a stick's rest is a mid value, not 0.
 HRESULT WINAPI hook_get_device_state(void* self, DWORD size, void* data) {
     HRESULT hr = g_get_device_state(self, size, data);
-    if (data && size == 256 && (g_panel.open || g_modal || GetTickCount() - g_closed_at < 250)) std::memset(data, 0, size);
+    if (data && size == 256 && (g_panel.open || g_modal || g_prompting || GetTickCount() - g_closed_at < 250)) std::memset(data, 0, size);
     if (g_drive && data && size == 256) {   // the drive's keys, with or without the focus
         if (FAILED(hr)) { std::memset(data, 0, size); hr = S_OK; }
         for (int k = 0; k < 256; ++k)
@@ -519,6 +556,44 @@ bool ui_key_down(const std::string& name, bool pad) {
 
 void ui_notice(const std::string& head, const std::string& text) { g_notice = {head, text, now()}; }
 void ui_open_panel() { g_panel_asked = true; }
+void ui_prompt(const std::string& text, bool secret) {
+    g_prompt_text = text.substr(0, 120);
+    g_prompt_secret = secret;
+    g_prompt_done = 0;
+    g_prompting = true;                 // (the menu was made with the line already in it)
+}
+// A filled rectangle straight to the device, in the game's 1024 x 768 layout (centred, scaled by the height): for
+// what must lie under something the game draws next. Every state it touches is put back.
+void ui_fill_layout(float x0, float y0, float x1, float y1, std::uint32_t argb) {
+    IDirect3DDevice9* dev = g_device;
+    D3DVIEWPORT9 vp{};
+    IDirect3DStateBlock9* was = nullptr;
+    if (!dev || FAILED(dev->GetViewport(&vp)) || FAILED(dev->CreateStateBlock(D3DSBT_ALL, &was))) return;
+    const float s = float(vp.Height) / 768.0f, ox = (float(vp.Width) - 1024.0f * s) * 0.5f;
+    struct Vertex { float x, y, z, w; DWORD c; };
+    const Vertex v[4] = {{ox + x0 * s, y0 * s, 0, 1, argb}, {ox + x1 * s, y0 * s, 0, 1, argb}, {ox + x0 * s, y1 * s, 0, 1, argb}, {ox + x1 * s, y1 * s, 0, 1, argb}};
+    dev->SetVertexShader(nullptr);
+    dev->SetPixelShader(nullptr);
+    dev->SetFVF(D3DFVF_XYZRHW | D3DFVF_DIFFUSE);
+    dev->SetTexture(0, nullptr);
+    dev->SetRenderState(D3DRS_ZENABLE, FALSE);
+    dev->SetRenderState(D3DRS_ALPHABLENDENABLE, TRUE);
+    dev->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_SRCALPHA);
+    dev->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA);
+    dev->SetRenderState(D3DRS_ALPHATESTENABLE, FALSE);
+    dev->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
+    dev->SetRenderState(D3DRS_LIGHTING, FALSE);
+    dev->SetRenderState(D3DRS_FOGENABLE, FALSE);
+    dev->SetRenderState(D3DRS_SCISSORTESTENABLE, FALSE);
+    dev->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
+    dev->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_DIFFUSE);
+    dev->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
+    dev->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_DIFFUSE);
+    dev->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
+    dev->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, 2, v, sizeof(Vertex));
+    was->Apply();
+    was->Release();
+}
 void ui_item_icon(int item, const std::filesystem::path& file) {
     if (const int h = ui_load_image(file)) g_item_icons[item] = h;
 }

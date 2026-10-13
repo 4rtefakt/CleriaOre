@@ -80,7 +80,9 @@ the environment variable `CLERIAORE_DRIVE` set; each frame it then reads, in `cl
   read and write the game's memory (hexadecimal; `p+<offset>` is the player's actor). `shot <name>` writes
   the frame being drawn to `drive/<name>.bmp`, as the game's device holds it: the game's picture with the
   loader's overlay, nothing of the desktop. `profile <name>` sets a save profile at any time (a mod can only on
-  the title) and `steamrm <file>` deletes a file of Steam's storage, both for the save profiles' test.
+  the title) and `steamrm <file>` deletes a file of Steam's storage, both for the save profiles' test. `nav
+  up|down|left|right|ok|back` presses a key in the loader's panel or a mod's window, and `type <text>` types into a
+  prompt (`nav ok` keeps it, `nav back` drops it).
 
 The probe mod has commands for it: `actors`, `labels`, `weaken`, `remove`, `tp x y z`, `speed f`,
 `hold 0|1`, `image`, `window`, and `lua <code>` for anything else.

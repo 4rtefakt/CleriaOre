@@ -454,3 +454,29 @@ The notes themselves are gathered in the `yso` repository.
   prologue, no opening event. Without the flags S_1000 plays its opening. The Extra version (0x74c0dc Yunica,
   0x74c0d8 Hugo, 0x74c0d4 Toal) is given only where it was bought (0x74ac00, +4, +8).
 - The drive's `nav up|down|left|right|ok|back` presses a key in the loader's panel or a mod's window.
+
+## A menu of the game's own, for a mod
+
+- **The game's framed lists are one class, `GoWndDialog`** (Type Select, a script's menu, the title's list without
+  its frame). As the game makes one: a record from the windows' pool (`FUN_00429ad0`, stdcall, one word; the
+  pool's count is `0x730174`, which the title reads as "a window is up"), the constructor (`FUN_00577ee0`), the
+  place and caption (`FUN_005784b0`: &{x, y} in the 1024 x 768 layout, y the first row's top; a wide caption),
+  the rows (`FUN_00578680`), the layout (`FUN_00578710`), then enabled (+0x1fd1 = 1, +0x1fc0 from `0x767c20`)
+  with the row Esc picks at +0x2004 and the cursor's at +0x1ffc. The window then runs, draws and closes itself;
+  a row's callback takes no argument. Its place is kept at +0x1fe0 (x), +0x1fe4 (y), the rows' width and
+  height at +0x1fe8 and +0x1fec, its fade at +0x1fb4.
+- `ore.menu id[:cursor]|caption|row|row...` makes one for a mod (up to 16 rows); a pick runs the mod's command
+  `menu_<id>` with the row, Esc picks the last row; no argument closes it. With no game running it stands where
+  the title's list does, its last row at the bottom; in a game, in the middle. Driven on the title: picks, Esc,
+  the cursor's row, a menu opened from another's pick.
+- **The frame is see-through**, made for the game's dark rooms. The dialog's draw (`FUN_00578f80(window)`) is
+  hooked and a dark rectangle drawn first for a mod's menu, straight to the device with its state saved and put
+  back, so the rows read over the title's bright picture.
+- **A row's text cannot be changed once the window is made**: rewritten in its record (+0x120 + 0x1cc a row) or
+  added again, only some of its letters are drawn. `ore.prompt id|caption|text[|secret]`, a line typed in such a
+  menu, therefore makes the window anew for each change of the line (once a frame), the old one dropped, both
+  with their fades skipped. The keys come from the window's messages while it is up (Enter keeps, Esc drops,
+  Ctrl+V pastes) and the game gets none; `menu_<id>` then gets `ok <text>` or `cancel`. Driven: a server address
+  edited and kept.
+- `ore.title new_game` now closes the title's list only if it is the one up (its New Game row still the
+  loader's): from a mod's menu, which stood in the list's place, the callback alone is called.

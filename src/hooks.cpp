@@ -445,7 +445,24 @@ void __fastcall hook_list_add(void* self, void*, const wchar_t* label, void* cal
     }
     g_list_add(self, label, callback);
 }
-// FUN_004295d0, the HUD's draw: the status widgets (each drawn while its owner, +4, or its fading flag, +0x48, is
+// FUN_00578f80(window), a GoWndDialog's draw: its frame, its rows, the cursor. The frame is see-through, made to
+// lie over the game's dark rooms; a mod's menu (game_menu) gets a dark panel under it, so that it reads over the
+// title's bright picture too. The window's place is +0x1fe0 (x, the middle), +0x1fe4 (y, the first row's top), its
+// rows' width and height +0x1fe8 and +0x1fec, in the 1024 x 768 layout; +0x1fb4 is its fade.
+constexpr std::uintptr_t kDialogDraw = 0x578f80;
+constexpr std::uint8_t kDialogDrawBytes[] = {0x55, 0x8b, 0xec, 0x83, 0xe4, 0xf0, 0x81, 0xec, 0x68, 0x02, 0x00, 0x00, 0x81, 0x3d, 0x60, 0x77};
+void(__cdecl* g_dialog_draw)(char* window) = nullptr;
+char* g_menu_back = nullptr;            // the mod's menu that has the panel
+void __cdecl hook_dialog_draw(char* w) {
+    if (w && w == g_menu_back) {
+        const float fade = std::clamp(*reinterpret_cast<float*>(w + 0x1fb4), 0.0f, 1.0f);
+        const float x = *reinterpret_cast<float*>(w + 0x1fe0), y = *reinterpret_cast<float*>(w + 0x1fe4);
+        const float half = *reinterpret_cast<float*>(w + 0x1fe8) * 0.5f + 34.0f, tall = *reinterpret_cast<float*>(w + 0x1fec);
+        if (fade <= 0.0f && w[0x1fd9]) g_menu_back = nullptr;       // closed
+        else ui_fill_layout(x - half, y - 44.0f, x + half, y + tall + 16.0f, (std::uint32_t(fade * 200.0f) << 24) | 0x0a1226u);
+    }
+    g_dialog_draw(w);
+}// FUN_004295d0, the HUD's draw: the status widgets (each drawn while its owner, +4, or its fading flag, +0x48, is
 // set: 0x6d5ef0 the gauges and the portrait, 0x6d5f3c the skill's), then the boss gauge by FUN_0043a770 (widget
 // 0x6d5fd4 in ecx). A part a mod hides is not drawn: the status widgets read as absent for the call, the gauge's
 // draw is skipped.
@@ -926,6 +943,7 @@ const Site kSites[] = {
     SITE(kSkill, kSkillBytes, &hook_skill, &g_skill),     SITE(kJump, kJumpBytes, &hook_jump, &g_jump),
     SITE(kFx, kFxBytes, &hook_fx, &g_fx),                 SITE(kToalA, kToalABytes, &hook_toal_a, &g_toal_a),
     SITE(kToalB, kToalBBytes, &hook_toal_b, &g_toal_b),
+    SITE(kDialogDraw, kDialogDrawBytes, &hook_dialog_draw, &g_dialog_draw),
     SITE(kListOpen, kListOpenBytes, &hook_list_open, &g_list_open), SITE(kListAdd, kListAddBytes, &hook_list_add, &g_list_add),
     SITE(kSpawn, kSpawnBytes, &hook_spawn, &g_spawn),       SITE(kTouch, kTouchBytes, &hook_touch, &g_touch),
 };
@@ -1115,11 +1133,68 @@ bool steam_delete(const char* name) {   // the drive's, for tests: a file of Ste
 }
 
 void open_toal() { g_open_toal = 1; }
+// A menu of the game's own for a mod: a GoWndDialog, the framed list Type Select and a script's menu are. As the
+// game makes one: a record of the windows' pool (FUN_00429ad0), its constructor (FUN_00577ee0), its place and
+// caption (FUN_005784b0: &{x, y} of the 1024 x 768 layout, a wide caption), a row at a time (FUN_00578680), the
+// layout (FUN_00578710), then enabled (+0x1fd1, +0x1fc0) with the row Esc picks (+0x2004) and the cursor's
+// (+0x1ffc). The window runs and draws itself, and closes when a row is picked; a row's callback takes no
+// argument, so each row has its own.
+namespace {
+char* g_menu = nullptr;                 // the last one made (it may be gone: only its closing byte is ever written,
+std::wstring g_menu_caption;            // its caption and height, for a prompt's next line
+float g_menu_y = 0;
+int g_menu_made = 0;                    // and only while the windows' count says one is up)
+template <int Row> void __cdecl menu_thunk() { g_menu = nullptr; on_menu_pick(Row); }
+void(__cdecl* const kMenuRow[16])() = {&menu_thunk<1>, &menu_thunk<2>, &menu_thunk<3>, &menu_thunk<4>, &menu_thunk<5>, &menu_thunk<6>,
+                                       &menu_thunk<7>, &menu_thunk<8>, &menu_thunk<9>, &menu_thunk<10>, &menu_thunk<11>, &menu_thunk<12>,
+                                       &menu_thunk<13>, &menu_thunk<14>, &menu_thunk<15>, &menu_thunk<16>};
+}  // namespace
+bool game_menu(const std::wstring& caption, const std::vector<std::wstring>& rows, int cursor, float y) {
+    if (!g_hooked || rows.empty() || rows.size() > 16) return false;
+    char* win = reinterpret_cast<char*(__stdcall*)(int)>(0x429ad0)(0);
+    if (!win) return false;
+    reinterpret_cast<void*(__fastcall*)(void*)>(0x577ee0)(win);
+    float origin[2] = {512.0f, y};
+    reinterpret_cast<void(__thiscall*)(void*, float*, const wchar_t*, int)>(0x5784b0)(win, origin, caption.c_str(), 0);
+    for (std::size_t i = 0; i < rows.size(); ++i) g_list_add(win, rows[i].c_str(), kMenuRow[i]);
+    reinterpret_cast<void(__thiscall*)(void*)>(0x578710)(win);
+    win[0x1fd1] = 1;
+    *reinterpret_cast<std::int32_t*>(win + 0x1fc0) = *reinterpret_cast<std::int32_t*>(0x767c20);
+    *reinterpret_cast<std::int32_t*>(win + 0x2004) = int(rows.size());
+    *reinterpret_cast<std::int32_t*>(win + 0x1ffc) = std::clamp(cursor, 1, int(rows.size()));
+    g_menu = g_menu_back = win;
+    g_menu_caption = caption;
+    g_menu_y = y;
+    return true;
+}
+// A prompt's line as it is typed. A row's text is drawn from what the window prepared when it was made (a row
+// rewritten or added again shows only some of its letters), so the menu is made anew with the line as its one row
+// and the old one dropped, both without their fades (+0x1fb4).
+void game_prompt_text(const std::string& text) {
+    char* old = g_menu && *reinterpret_cast<std::int32_t*>(0x730174) > 0 ? g_menu : nullptr;
+    const std::wstring caption = g_menu_caption;
+    if (!game_menu(caption, {std::wstring(text.begin(), text.end())}, 1, g_menu_y)) return;
+    *reinterpret_cast<float*>(g_menu + 0x1fb4) = 1.0f;
+    if (old) {
+        old[0x1fd9] = 1;
+        *reinterpret_cast<float*>(old + 0x1fb4) = 0.0f;
+    }
+}void game_menu_close() {                // as a pick closes it, without the pick
+    if (g_menu && *reinterpret_cast<std::int32_t*>(0x730174) > 0) g_menu[0x1fd9] = 1;
+    g_menu = nullptr;
+}
 void title_run() { g_title_ask = true; }
 void title_tick() {
-    if (std::exchange(g_title_ask, false) && g_title_list) {
-        *reinterpret_cast<std::int32_t*>(g_title_list + 0x1ffc) = g_new_game_row;
-        g_title_list[0x1fd9] = 1;
+    if (std::exchange(g_title_ask, false)) {
+        // The title's list, if it is the one up (its New Game row still the loader's, not closing), is closed as its
+        // handler closes it; when a mod's menu stood in its place there is none. (A window's record is the pool's:
+        // always memory, though another window may have it by now, hence the row's test.)
+        char* l = g_title_list;
+        if (l && *reinterpret_cast<std::int32_t*>(0x730174) > 0 && !l[0x1fd9] &&
+            *reinterpret_cast<void**>(l + 0x220 + 0x1cc * g_new_game_row) == static_cast<void*>(&title_new_game)) {
+            *reinterpret_cast<std::int32_t*>(l + 0x1ffc) = g_new_game_row;
+            l[0x1fd9] = 1;
+        }
         reinterpret_cast<void(__cdecl*)()>(0x575c10)();
     }
     if (g_cursor_back > 0 && --g_cursor_back == 0) *reinterpret_cast<std::uint8_t*>(0x74ac3d) = g_cursor_was;

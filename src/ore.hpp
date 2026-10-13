@@ -95,6 +95,14 @@ bool profile_storage();                // hooks.cpp: Steam's storage follows the
 bool on_title_item(const char* item);   // a row of the title's list was chosen; false = a mod's "title_<item>" command took it
 void title_run();                      // hooks.cpp: the title's own New Game, chosen at the next step, past the mods
 void title_tick();
+// hooks.cpp: a menu of the game's own (its caption, up to 16 rows, the row the cursor starts on, its height on the screen); a pick calls
+// on_menu_pick with the row, 1-based, and Esc picks the last row.
+bool game_menu(const std::wstring& caption, const std::vector<std::wstring>& rows, int cursor, float y);   // y: the first row's top, of 768
+void game_menu_close();
+void game_prompt_text(const std::string& text);        // hooks.cpp: the first row of the menu now up
+void on_prompt_done(bool kept, const std::string& text);   // a prompt ended: the mod's command "menu_<id>" gets "ok <text>" or "cancel"
+void on_menu_pick(int row);
+void menu_owner(const std::string& id);   // the menu now up is this one: its picks go to the mods' command "menu_<id>"
 void open_toal();                      // hooks.cpp: Character Select offers Toal for the rest of this run
 bool steam_delete(const char* name);   // hooks.cpp: for the drive's tests
 bool session_pending();                // a new game / a load whose event was not delivered yet

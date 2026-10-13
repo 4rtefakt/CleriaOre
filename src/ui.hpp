@@ -32,6 +32,8 @@ bool ui_panel_open();                 // the F1 panel is open
 bool ui_key_down(const std::string& name, bool pad);
 bool ui_key_known(const std::string& name, bool pad);
 void ui_notice(const std::string& head, const std::string& text);   // a card over the game for a few seconds
+void ui_fill_layout(float x0, float y0, float x1, float y1, std::uint32_t argb);   // a rectangle under what the game draws next (1024 x 768 layout)
+void ui_prompt(const std::string& text, bool secret);                // typing into the game menu now up (game_prompt_text shows it); on_prompt_done ends it
 void ui_open_panel();                                               // the F1 panel, as F1 opens it
 // A mod's picture for an item of its own or for an icon id (items.ini Icon=, cleria.ui.icon): kept by id, and shown
 // beside the card for a few seconds.

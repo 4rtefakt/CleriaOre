@@ -555,6 +555,20 @@ int on_blessing(int index) {
 void emit_named(const events::Event& e) { emit(e, host().room()); }
 // A row of the title's list was chosen. A mod that has a command named "title_<item>" (cleria.command) takes the
 // row over: its command runs in the row's place. It may hand it back later (cleria.mods.command("ore.title", item)).
+// A row of a mod's menu (game_menu) was picked: the mod's command "menu_<id>" is told the row.
+std::string g_menu_id;
+void menu_owner(const std::string& id) { g_menu_id = id; }
+void on_menu_pick(int row) {
+    const std::string name = "menu_" + g_menu_id;
+    for (auto& m : g_scripts)
+        if (m->ok() && m->has_command(name)) { m->command(name, std::to_string(row)); return; }
+}
+void on_prompt_done(bool kept, const std::string& text) {
+    game_menu_close();
+    const std::string name = "menu_" + g_menu_id;
+    for (auto& m : g_scripts)
+        if (m->ok() && m->has_command(name)) { m->command(name, kept ? "ok " + text : std::string("cancel")); return; }
+}
 bool on_title_item(const char* item) {
     if (WaitForSingleObject(g_started, 0) != WAIT_OBJECT_0) return true;
     const std::string name = std::string("title_") + item;
