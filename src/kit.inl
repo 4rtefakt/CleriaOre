@@ -337,7 +337,7 @@ inline void info(List& L, const char* label, const char* value, ImU32 value_col 
     const float lpx = 17.0f * S, vpx = 16.0f * S;
     const float cy = (r.a.y + r.b.y) * 0.5f;
     text(L.dl, F.serif, lpx, {r.a.x + r.pad + 7.0f * S, cy - lpx * 0.58f}, IM_COL32(190, 196, 212, 255), label);
-    const float maxw = (r.b.x - r.a.x) * 0.62f;
+    const float maxw = (r.b.x - r.a.x) * (*label ? 0.62f : 0.9f);
     std::string v = value;
     if (text_size(F.body, vpx, value).x > maxw) {       // keep the tail of long paths
         while (v.size() > 4 && text_size(F.body, vpx, ("..." + v).c_str()).x > maxw) v.erase(0, 1);
@@ -435,12 +435,19 @@ struct Panel {
         // the tabs: the open page's name on a black plate set into the band, the others beside it
         if (nav.tab_prev) tab = (tab + int(pages.size()) - 1) % int(pages.size());
         if (nav.tab_next) tab = (tab + 1) % int(pages.size());
-        const float tpx = 21.0f * S;
+        float tpx = 21.0f * S, padx = 34.0f * S;
+        {   // many tabs: narrower plates, then smaller type, so the row stays clear of the close cross
+            float sum = 0;
+            for (const Page& p : pages) sum += text_size(F.serif_italic, tpx, p.name.c_str()).x;
+            const float avail = pw - 18.0f * S - 50.0f * S, n = float(pages.size()), gap = 6.0f * S;
+            if (sum + (padx + gap) * n > avail) padx = std::max(14.0f * S, (avail - sum) / n - gap);
+            if (sum + (padx + gap) * n > avail) tpx *= std::max(0.6f, (avail - (padx + gap) * n) / sum);
+        }
         float x = a.x + 18.0f * S;
         for (int i = 0; i < int(pages.size()); ++i) {
             const char* t = pages[std::size_t(i)].name.c_str();
             const ImVec2 ts = text_size(F.serif_italic, tpx, t);
-            const ImVec2 ta{x, a.y + 6.0f * S}, tb{x + ts.x + 34.0f * S, a.y + band + 7.0f * S};
+            const ImVec2 ta{x, a.y + 6.0f * S}, tb{x + ts.x + padx, a.y + band + 7.0f * S};
             if (hovering(ta, tb)) hand();
             if (hovering(ta, tb) && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) tab = i;
             if (i == tab) {
@@ -448,7 +455,7 @@ struct Panel {
                 dl->AddRect(ta, tb, kGoldDark, 0.0f, 0, 3.4f * S);
                 dl->AddRect(ta, tb, kGold, 0.0f, 0, 1.2f * S);
             }
-            text_sh(dl, F.serif_italic, tpx, {x + 17.0f * S, a.y + 6.0f * S + (tb.y - ta.y - tpx) * 0.42f}, i == tab ? kTabOn : kTabOff, t);
+            text_sh(dl, F.serif_italic, tpx, {x + padx * 0.5f, a.y + 6.0f * S + (tb.y - ta.y - tpx) * 0.42f}, i == tab ? kTabOn : kTabOff, t);
             x = tb.x + 6.0f * S;
         }
         // the close cross, and the wordmark before it, letter-spaced as the game's own
