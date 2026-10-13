@@ -238,6 +238,13 @@ void drive_poll() {
             const std::size_t sp = l.find(' ');
             if (l.empty()) continue;
             if (l == "panel") { g_panel.open = !g_panel.open; continue; }
+            if (l.rfind("nav ", 0) == 0) {                                    // a key for the panel or a mod's window: up down left right ok back
+                static const std::pair<const char*, ImGuiKey> kNav[] = {{"up", ImGuiKey_UpArrow}, {"down", ImGuiKey_DownArrow}, {"left", ImGuiKey_LeftArrow},
+                                                                        {"right", ImGuiKey_RightArrow}, {"ok", ImGuiKey_Enter}, {"back", ImGuiKey_Escape}};
+                for (const auto& [word, key] : kNav)
+                    if (l.substr(4) == word) { ImGui::GetIO().AddKeyEvent(key, true); ImGui::GetIO().AddKeyEvent(key, false); }
+                continue;
+            }
             if (l.rfind("shot ", 0) == 0) { g_drive_shot = l.substr(5); continue; }   // this frame, as drive/<name>.bmp
             if (l.rfind("profile", 0) == 0) { set_save_profile(l.size() > 8 ? l.substr(8) : std::string()); profile_storage(); continue; }   // for tests: at any time
             if (l.rfind("steamrm ", 0) == 0) { log("[drive] %s: %s", l.c_str(), steam_delete(l.c_str() + 8) ? "deleted" : "no"); continue; }

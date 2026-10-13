@@ -433,3 +433,24 @@ The notes themselves are gathered in the `yso` repository.
   chose the row is up (so that key chooses nothing in the panel), and notes its own row for the cursor. The
   list is placed 16 units higher, as the game does itself when it has an Achievements row. Seen: the row, the
   panel opening from it with nothing toggled, the cursor back on "Mods" after the panel.
+
+## The title's New Game, taken over
+
+- **A row of a list is chosen in the list's handler `FUN_005789a0`**: it sets the list's closing byte (+0x1fd9)
+  with the row in +0x1ffc and calls the row's callback at once (`FUN_00578960`); the list then fades out, and the
+  title builds it again if nothing else came up. New Game's callback is `FUN_00575c10`.
+- The loader puts its own callback on that row. A mod that registered a command `title_new_game`
+  (`cleria.command`) has it run in the row's place: the row then does nothing else. The loader's own command
+  `ore.title new_game` (`cleria.mods.command`) chooses the row as the handler would, past the mods. (A world
+  filter was the first idea; the mod API takes only its four kinds, and a command's name no dot.) Seen: the
+  Archipelago mod's window in place of Character Select, and Character Select from its "Classic".
+- **The game ships its developers' scenario jump**, `data\map\s_01\s_0100\`: a menu (`S_0100.XSO`) of scripts
+  that set the story's flags for a point and change scene. `S1004.XSO`, the first point after the tower's
+  opening, sets 246 and 300, and for Yunica and Hugo 187, 229, 84, 85, for Toal 229 and 86. `SKIPPLO.XSO`
+  toggles flag 204, "Event Skip Flag".
+- `ore.new_game character= difficulty= extra= room= flags=` starts a new game as the Difficulty page does, in
+  any scene, with flags set between the game's reset (`FUN_0041fd10`) and that scene's script. Driven: Hugo,
+  `room=S_1000 flags=246:1,300:1,86:1`: the tower's base beside the lit statue, in play at once, no movie, no
+  prologue, no opening event. Without the flags S_1000 plays its opening. The Extra version (0x74c0dc Yunica,
+  0x74c0d8 Hugo, 0x74c0d4 Toal) is given only where it was bought (0x74ac00, +4, +8).
+- The drive's `nav up|down|left|right|ok|back` presses a key in the loader's panel or a mod's window.

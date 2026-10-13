@@ -419,13 +419,16 @@ void __cdecl title_mods() {
     g_cursor_lent = true;
     ui_open_panel();
 }
-// The title's New Game row asks the mods first (a mod's command "title_new_game" takes it over); taken, the row does
-// nothing and the list stays. title_run calls a row's own callback at the game's next step, as the list would.
-std::uintptr_t g_title_run = 0;
+// The title's New Game row asks the mods first (a mod's command "title_new_game" takes it over): taken, the row
+// does nothing. A row is chosen when the list's handler (FUN_005789a0) sets its closing byte (+0x1fd9) with the
+// row in +0x1ffc and calls the row's callback (FUN_00578960); the list then fades out, and the title builds it
+// again if nothing else came up. title_run does the same for the New Game row, past the mods.
+char* g_title_list = nullptr;           // the title's main list, as last built
+int g_new_game_row = 1;
+bool g_title_ask = false;
 void __cdecl title_new_game() {
     if (on_title_item("new_game")) reinterpret_cast<void(__cdecl*)()>(0x575c10)();
-}
-void __fastcall hook_list_open(void* self, void*, float* origin, const char* caption, int z) {
+}void __fastcall hook_list_open(void* self, void*, float* origin, const char* caption, int z) {
     if (caption == reinterpret_cast<const char*>(0x6a06e4) && *reinterpret_cast<std::uint8_t*>(0x74e259) == 0 && origin) origin[1] -= 16.0f * 1.6f;
     g_list_open(self, origin, caption, z);
 }
@@ -435,7 +438,11 @@ void __fastcall hook_list_add(void* self, void*, const wchar_t* label, void* cal
         g_list_add(self, L"Mods", &title_mods);
         if (std::exchange(g_cursor_lent, false)) g_cursor_back = 3;
     }
-    if (callback == reinterpret_cast<void*>(0x575c10)) callback = &title_new_game;
+    if (callback == reinterpret_cast<void*>(0x575c10)) {
+        g_title_list = static_cast<char*>(self);
+        g_new_game_row = *reinterpret_cast<std::int32_t*>(g_title_list + 0x1fb0);   // the row it is about to be
+        callback = &title_new_game;
+    }
     g_list_add(self, label, callback);
 }
 // FUN_004295d0, the HUD's draw: the status widgets (each drawn while its owner, +4, or its fading flag, +0x48, is
@@ -1108,9 +1115,13 @@ bool steam_delete(const char* name) {   // the drive's, for tests: a file of Ste
 }
 
 void open_toal() { g_open_toal = 1; }
-void title_run(std::uintptr_t callback) { g_title_run = callback; }
+void title_run() { g_title_ask = true; }
 void title_tick() {
-    if (const std::uintptr_t f = std::exchange(g_title_run, 0)) reinterpret_cast<void(__cdecl*)()>(f)();
+    if (std::exchange(g_title_ask, false) && g_title_list) {
+        *reinterpret_cast<std::int32_t*>(g_title_list + 0x1ffc) = g_new_game_row;
+        g_title_list[0x1fd9] = 1;
+        reinterpret_cast<void(__cdecl*)()>(0x575c10)();
+    }
     if (g_cursor_back > 0 && --g_cursor_back == 0) *reinterpret_cast<std::uint8_t*>(0x74ac3d) = g_cursor_was;
 }
 

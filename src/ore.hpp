@@ -93,7 +93,7 @@ bool set_save_profile(const std::string& name);   // false: not a usable name
 bool save_name(const char* base);      // hooks.cpp: a save file's name (yso_NN.bin, yso_NN.nacci)
 bool profile_storage();                // hooks.cpp: Steam's storage follows the save profile; false: there is none (yet)
 bool on_title_item(const char* item);   // a row of the title's list was chosen; false = a mod's "title_<item>" command took it
-void title_run(std::uintptr_t callback);   // hooks.cpp: a title row's own callback, at the next step
+void title_run();                      // hooks.cpp: the title's own New Game, chosen at the next step, past the mods
 void title_tick();
 void open_toal();                      // hooks.cpp: Character Select offers Toal for the rest of this run
 bool steam_delete(const char* name);   // hooks.cpp: for the drive's tests

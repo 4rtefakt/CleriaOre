@@ -263,7 +263,8 @@ struct RetailHost : script::Host {
         at<std::uint8_t>(0x74e684) = diff == 0;
         at<std::uint8_t>(0x74e25f) = 0;
         at<std::uint8_t>(0x74e25e) = 0;                                       // the story, not Time Attack or the Arena
-        if (extra >= 0) at<std::int32_t>(ch == 1 ? 0x74c0dc : ch == 2 ? 0x74c0d8 : 0x74c0d4) = extra != 0;
+        // (the Extra version only where it was bought, as Type Select offers it: 0x74ac00 Yunica, +4 Hugo, +8 Toal)
+        if (extra >= 0) at<std::int32_t>(ch == 1 ? 0x74c0dc : ch == 2 ? 0x74c0d8 : 0x74c0d4) = extra != 0 && at<std::int32_t>(0x74ac00 + 4 * (ch - 1)) != 0;
         reinterpret_cast<void(__cdecl*)()>(0x41fd10)();
         for (const auto& [flag, value] : set)                                 // (after the reset, before the first room's script)
             if (flag >= 0 && flag < 0x200) at<std::int32_t>(0x76b91c + 4 * flag) = value;
@@ -284,7 +285,7 @@ struct RetailHost : script::Host {
         *ran = false;
         if (name == "ore.title") {
             if (args != "new_game" || game_state() != "title") return true;
-            title_run(0x575c10);
+            title_run();
             *ran = true;
         } else if (name == "ore.new_game") {
             int ch = 1, diff = 2, extra = -1;
