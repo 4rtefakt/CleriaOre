@@ -58,6 +58,7 @@ add_library(dinput8 SHARED
   src/files.cpp
   src/hooks.cpp
   src/host.cpp
+  src/content.cpp
   src/ui.cpp
   src/exports.def)
 target_link_libraries(dinput8 PRIVATE cleria-modkit miniz minhook imgui d3d9)

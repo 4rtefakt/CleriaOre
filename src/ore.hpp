@@ -38,7 +38,15 @@ float on_exp(float value, int source, const void* victim);    // -> the EXP awar
 void on_kill(const void* victim, float* sp);                   // a monster died of the player's hit; *sp = the SP it gives, before the game's scale
 bool on_drop(int* item, const float* pos);                     // a kill's drop that passed its roll; false = nothing drops
 bool on_pickup(void* pickup);                                  // the player touched a pickup; false = it is taken and the game grants nothing
-bool spawn_pickup(int item, const float* pos);                 // hooks.cpp: a pickup thrown up as an enemy's drop is
+// hooks.cpp: a pickup thrown up as an enemy's drop is; `resting`: one that lies where it is put and stays.
+bool spawn_pickup(int item, const float* pos, bool resting = false);
+// content.cpp: the active mods' content/*.ini (CleriaCore's CONTENT.md).
+void content_start();                                          // read them (after the mods are loaded)
+bool content_on();
+cleria::GrantDecision content_grant(const cleria::GrantQuery& q, const std::string& room);   // chests.ini's answer
+bool content_give(int id, int count, const std::string& source, const std::string& script);  // a new item (0x100..); false: not one
+std::string content_item_name(int id);                         // a patched or new item's name, "" = none
+void content_pickup_taken(int item, const float* pos, const std::string& room);
 cleria::script::Host& host();          // host.cpp: the retail game as a script reaches it
 const std::map<std::string, std::pair<int, std::string>>& chests();   // the room's: script -> {box flag, object}
 void on_tick();                        // one step of the game's 60 Hz simulation ran (the game thread)

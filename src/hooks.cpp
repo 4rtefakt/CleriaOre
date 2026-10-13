@@ -223,7 +223,7 @@ __declspec(naked) void hook_touch() {
     }
 }
 // cleria.game.spawn_pickup: one pickup of `*id` thrown up from `pos` with an enemy drop's arguments.
-__declspec(naked) void __cdecl spawn_one(int* /*id*/, const float* /*pos*/) {
+__declspec(naked) void __cdecl spawn_one(int* /*id*/, const float* /*pos*/, int /*flags*/) {
     __asm {
         push ebp
         mov  ebp, esp
@@ -238,7 +238,7 @@ __declspec(naked) void __cdecl spawn_one(int* /*id*/, const float* /*pos*/) {
         push 0                          // no spin
         push 0x3f666666                 // size 0.9
         push dword ptr [ebp + 12]       // pos
-        push 5                          // flags: a pickup
+        push dword ptr [ebp + 16]       // flags: 5 a drop; 0x1c a pickup that rests and stays
         push 1
         push 2
         push 1                          // one
@@ -545,10 +545,10 @@ bool install_hooks() {
 
 bool hooked() { return g_hooked; }
 
-bool spawn_pickup(int item, const float* pos) {
+bool spawn_pickup(int item, const float* pos, bool resting) {
     if (!g_hooked) return false;
     int id = item;
-    spawn_one(&id, pos);
+    spawn_one(&id, pos, resting ? 0x1c : 5);
     return true;
 }
 

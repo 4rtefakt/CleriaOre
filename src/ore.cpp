@@ -239,6 +239,7 @@ void start(bool hooked) {
     events::bus().subscribe([](const events::Event& e) {
         for (auto& m : g_scripts) m->on_event(e);
     });
+    content_start();
 }
 
 Sidecar& sidecar() { return g_sidecar; }
@@ -357,7 +358,7 @@ void on_saved(const char* file) {
 }
 
 void on_tick() {
-    if (WaitForSingleObject(g_started, 0) != WAIT_OBJECT_0 || g_scripts.empty()) return;
+    if (WaitForSingleObject(g_started, 0) != WAIT_OBJECT_0 || (g_scripts.empty() && !content_on())) return;
     script::Host& h = host();
     const std::string room = h.room();
     const bool session = g_session != Session::None && !room.empty();   // a session starts with its first room
@@ -404,7 +405,7 @@ void on_tick() {
 
 GrantDecision on_grant(GrantQuery q) {
     GrantDecision d;
-    if (WaitForSingleObject(g_started, 0) != WAIT_OBJECT_0 || g_scripts.empty()) return d;
+    if (WaitForSingleObject(g_started, 0) != WAIT_OBJECT_0 || (g_scripts.empty() && !content_on())) return d;
     script::Host& h = host();
     const std::string room = h.room();
     q.flags = h.flags();
@@ -414,6 +415,12 @@ GrantDecision on_grant(GrantQuery q) {
         if (!m->has_filter() || !m->ok()) continue;
         d = m->filter(q, room);
         if (d.action != GrantDecision::Action::Pass) break;
+    }
+    if (d.action == GrantDecision::Action::Pass && content_on()) d = content_grant(q, room);   // chests.ini
+    // The retail game draws an item's icon from its own table: a mod's item (0x100..) has none there.
+    if (d.action == GrantDecision::Action::Replace && q.kind != GrantQuery::Kind::Store && (d.index < 0 || d.index >= content::kRetailItems)) {
+        if (q.kind == GrantQuery::Kind::Icon) d.action = GrantDecision::Action::Suppress;
+        else d.index = content::kNoIcon;
     }
     // What CleriaCore reports of a script's store (view_content.inl content_filter).
     if (q.kind != GrantQuery::Kind::Store) return d;
@@ -533,7 +540,7 @@ bool on_drop(int* item, const float* pos) {
 // The game's own grant runs unless a filter answered; then what the answer says is applied here.
 bool on_pickup(void* pickup) {
     using Kind = script::CombatQuery::Kind;
-    if (WaitForSingleObject(g_started, 0) != WAIT_OBJECT_0 || g_scripts.empty()) return true;
+    if (WaitForSingleObject(g_started, 0) != WAIT_OBJECT_0 || (g_scripts.empty() && !content_on())) return true;
     script::Host& h = host();
     std::int32_t* flags = h.flags();
     auto cell = [](std::uintptr_t a) -> float& { return *reinterpret_cast<float*>(a); };
@@ -590,6 +597,7 @@ bool on_pickup(void* pickup) {
         else if (w == "hp") h.set_stat(script::Host::Stat::Hp, h.stat(script::Host::Stat::Hp) + value);
         else cell(w == "boost" ? 0x76c1b4 : 0x76c1b8) = float(value);
     }
+    if (content_on()) content_pickup_taken(id, pos, room);
     {
         events::Event e{events::Kind::ItemObtained};
         e.item = id;

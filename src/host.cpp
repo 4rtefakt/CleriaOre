@@ -161,7 +161,9 @@ struct RetailHost : script::Host {
     bool frozen() override { return hooked() && (at<std::int32_t>(kFix) | at<std::int32_t>(kFix + 4)) != 0; }
     std::int32_t* upgrades() override { return hooked() ? &at<std::int32_t>(kUpgrades) : nullptr; }
     std::map<std::string, std::pair<int, std::string>> chests() override { return ore::chests(); }
+    int new_item_count(int id) override { return sidecar().item(id); }
     std::string item_name(int id) override {
+        if (std::string n = content_item_name(id); !n.empty()) return n;
         if (!hooked() || id < 0 || id >= content::kRetailItems) return {};
         const char* name = &at<char>(kItems + std::uintptr_t(id) * 0xb8);
         return std::string(name, strnlen(name, 0x20));
@@ -382,6 +384,7 @@ struct RetailHost : script::Host {
 
     // As CleriaCore's content_give for the retail ids: the count cell (0..99), the gold 0x78..0x7F into SP.
     void give(int id, int count, const std::string& source) override {
+        if (in_game() && content_give(id, count, source, {})) return;   // a mod's own item
         if (!in_game() || id < 0 || id >= content::kRetailItems || count < 1) return;
         if (id >= 0x78) {
             const std::int64_t sp = at<std::int32_t>(kSp) + std::int64_t(at<std::int32_t>(kItemMagnitude + id * 0xb8)) * count;
@@ -463,6 +466,21 @@ struct RetailHost : script::Host {
     void ui_info(void* list, const std::string& label, const std::string& value, std::uint32_t col, const std::string& desc) override {
         ui::info(*static_cast<ui::List*>(list), label.c_str(), value.c_str(), col, desc.empty() ? nullptr : desc.c_str());
     }
+    int load_image(const std::filesystem::path& file) override { return ui_load_image(file); }
+    void draw_image(int handle, float x0, float y0, float x1, float y1, std::uint32_t tint) override {
+        if (!g_hud) return;
+        if (void* t = ore::ui_image(handle)) g_hud->AddImage(ImTextureID(reinterpret_cast<std::intptr_t>(t)), {x0, y0}, {x1, y1}, {0, 0}, {1, 1}, tint);
+    }
+    void ui_image(void* list, int handle, float height, std::uint32_t tint) override {
+        ui::List& L = *static_cast<ui::List*>(list);
+        int w = 0, h = 0;
+        void* t = ore::ui_image(handle, &w, &h);
+        if (!t || h <= 0) return;
+        const float ph = std::clamp(height, 16.0f, 600.0f) * ui::S, pw = (std::min)(ph * float(w) / float(h), L.size.x - 26.0f * ui::S);
+        const float x0 = L.org.x + 13.0f * ui::S, y = L.org.y + L.y - L.scroll + 4.0f * ui::S;
+        L.dl->AddImage(ImTextureID(reinterpret_cast<std::intptr_t>(t)), {x0, y}, {x0 + pw, y + ph}, {0, 0}, {1, 1}, tint);
+        L.y += ph + 12.0f * ui::S;
+    }
     void ui_text(void* list, const std::string& text, std::uint32_t col) override { ui::paragraph(*static_cast<ui::List*>(list), text.c_str(), col); }
     void ui_table(void* list, const std::vector<std::string>& cells, bool header, std::uint32_t col) override {
         ui::table_row(*static_cast<ui::List*>(list), cells, header, col);
@@ -539,7 +557,7 @@ struct RetailHost : script::Host {
     bool spawn_pickup(int item, float x, float y, float z, double) override {
         if (!in_game() || item < 0 || item >= content::kRetailItems) return false;
         const float pos[3] = {x, y, z};
-        return ore::spawn_pickup(item, pos);
+        return ore::spawn_pickup(item, pos, false);
     }
     void warp(int index) override {
         if (!in_game() || index < 0 || index >= 24) return;

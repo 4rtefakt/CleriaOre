@@ -9,6 +9,7 @@
 #include <cstring>
 #include <share.h>
 #include <map>
+#include <vector>
 
 #include "MinHook.h"
 #include "imgui_impl_dx9.h"
@@ -87,6 +88,54 @@ void mods_page(ui::List& L) {
 }
 
 void init(IDirect3DDevice9* dev);
+
+// ---- a mod's images ----
+struct Image {
+    fs::path file;
+    IDirect3DTexture9* tex = nullptr;
+    int w = 0, h = 0;
+    bool tried = false;
+};
+std::vector<Image> g_images;
+IDirect3DDevice9* g_device = nullptr;
+
+// A DDS file's first level into a managed texture: the block formats as they are, 32-bit BGRA row by row.
+void make_texture(Image& im) {
+    im.tried = true;
+    std::FILE* f = _wfsopen(im.file.c_str(), L"rb", _SH_DENYNO);
+    if (!f) return;
+    std::vector<unsigned char> d;
+    unsigned char buf[65536];
+    for (std::size_t n; (n = std::fread(buf, 1, sizeof buf, f)) > 0;) d.insert(d.end(), buf, buf + n);
+    std::fclose(f);
+    if (d.size() < 128 || std::memcmp(d.data(), "DDS ", 4) != 0) return;
+    auto u32 = [&](std::size_t at) { std::uint32_t v; std::memcpy(&v, d.data() + at, 4); return v; };
+    const std::uint32_t h = u32(12), w = u32(16), pf_flags = u32(80), fourcc = u32(84), bits = u32(88);
+    if (!w || !h || w > 4096 || h > 4096) return;
+    D3DFORMAT fmt = D3DFMT_UNKNOWN;
+    std::size_t row = 0, rows = 0;   // bytes a row of the data, and how many
+    if (pf_flags & 4) {
+        fmt = fourcc == MAKEFOURCC('D', 'X', 'T', '1') ? D3DFMT_DXT1 : fourcc == MAKEFOURCC('D', 'X', 'T', '3') ? D3DFMT_DXT3
+            : fourcc == MAKEFOURCC('D', 'X', 'T', '5') ? D3DFMT_DXT5 : D3DFMT_UNKNOWN;
+        row = std::size_t((w + 3) / 4) * (fmt == D3DFMT_DXT1 ? 8 : 16);
+        rows = (h + 3) / 4;
+    } else if (bits == 32) {
+        fmt = D3DFMT_A8R8G8B8;
+        row = std::size_t(w) * 4;
+        rows = h;
+    }
+    if (fmt == D3DFMT_UNKNOWN || d.size() < 128 + row * rows) return;
+    IDirect3DTexture9* tex = nullptr;
+    if (FAILED(g_device->CreateTexture(w, h, 1, 0, fmt, D3DPOOL_MANAGED, &tex, nullptr))) return;
+    D3DLOCKED_RECT lr;
+    if (FAILED(tex->LockRect(0, &lr, nullptr, 0))) { tex->Release(); return; }
+    for (std::size_t y = 0; y < rows; ++y)
+        std::memcpy(static_cast<unsigned char*>(lr.pBits) + y * std::size_t(lr.Pitch), d.data() + 128 + y * row, row);
+    tex->UnlockRect(0);
+    im.tex = tex;
+    im.w = int(w);
+    im.h = int(h);
+}
 
 // ---- the drive: the game steered from outside, for tests (only with CLERIAORE_DRIVE set when the game starts) ----
 // Each frame cleriaore/drive/keys.txt is read: the DirectInput keys held (hex DIK codes, "D0 1C"), fed to the
@@ -191,6 +240,7 @@ void draw_notice(ImDrawList* dl, float w, float h) {
 
 HRESULT WINAPI hook_end_scene(IDirect3DDevice9* dev) {
     if (!g_ready) init(dev);
+    g_device = dev;
     ImGui_ImplDX9_NewFrame();
     ImGui_ImplWin32_NewFrame();
     ImGuiIO& io = ImGui::GetIO();
@@ -316,6 +366,23 @@ void ui_on_dinput(void* dinput8) {
     void* fn = (*reinterpret_cast<void***>(dinput8))[3];   // IDirectInput8::CreateDevice
     if (MH_CreateHook(fn, reinterpret_cast<void*>(&hook_create_device), reinterpret_cast<void**>(&g_create_device)) == MH_OK)
         MH_EnableHook(fn);
+}
+
+int ui_load_image(const std::filesystem::path& file) {
+    std::error_code ec;
+    if (!fs::exists(file, ec) || g_images.size() >= 512) return 0;
+    for (std::size_t i = 0; i < g_images.size(); ++i)
+        if (g_images[i].file == file) return int(i) + 1;
+    g_images.push_back({file});
+    return int(g_images.size());
+}
+void* ui_image(int handle, int* w, int* h) {
+    if (handle < 1 || handle > int(g_images.size())) return nullptr;
+    Image& im = g_images[std::size_t(handle - 1)];
+    if (!im.tex && !im.tried && g_device) make_texture(im);
+    if (w) *w = im.w;
+    if (h) *h = im.h;
+    return im.tex;
 }
 
 bool ui_holds_game() { return g_panel.open || g_modal_pause; }
