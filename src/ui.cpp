@@ -169,6 +169,34 @@ std::string about(const mods::Mod& m) {
     return d;
 }
 
+// The mods are read at the game's start: once they changed, a button restarts it, from the title only (nothing
+// unsaved is lost there). The game quits, and a hidden cmd.exe starts the same yso_win.exe two seconds later.
+void restart_game() {
+    wchar_t exe[MAX_PATH];
+    GetModuleFileNameW(nullptr, exe, MAX_PATH);
+    std::wstring cmd = L"cmd.exe /c ping -n 3 127.0.0.1 >nul & start \"\" \"" + std::wstring(exe) + L"\"";
+    STARTUPINFOW si{};
+    si.cb = sizeof si;
+    PROCESS_INFORMATION pi{};
+    const std::wstring dir = fs::path(exe).parent_path().wstring();
+    if (!CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, dir.c_str(), &si, &pi)) {
+        log("[ui] restart: cmd.exe could not be started (%lu)", GetLastError());
+        return;
+    }
+    CloseHandle(pi.hThread);
+    CloseHandle(pi.hProcess);
+    log("[ui] restart: the game quits and starts again");
+    ExitProcess(0);
+}
+void restart_row(ui::List& L) {
+    const bool title = !host().in_game();
+    if (ui::button(L, "Restart the game to apply the changes",
+                   title ? "Quits the game and starts it again, with the mods as you set them."
+                         : "The mods are read when the game starts. Save, quit to the title, then restart from here.",
+                   title))
+        restart_game();
+}
+
 void mod_page(ui::List& L) {
     mods::Mod* m = mod_by_id(g_sub);
     if (ui::back_row(L, "Mods", m ? m->label().c_str() : g_sub.c_str(), m ? about(*m).c_str() : nullptr) || !m) {
@@ -217,10 +245,10 @@ void mods_page(ui::List& L) {
         ui::info(L, "Mods are off", "", ui::kWarn, "Use mods is off: the game started as shipped.");
         if (ui::toggle(L, "Use mods", &on, "Turns the mods back on at the game's next start, with the choices you had."))
             set_use_mods(on);
-        if (on) ui::info(L, "", "Restart the game to play with your mods", ui::kWarn);
+        if (on) restart_row(L);
     } else if (mod_list().empty())
         ui::info(L, "No mod installed", "", ui::kMuted, ("Put a mod's folder, .zip or .cleriamod in:\n\n" + (dir() / "mods").string()).c_str());
-    if (g_changed) ui::info(L, "", "Restart the game to apply the changes", ui::kWarn);
+    if (g_changed) restart_row(L);
     order_init();
     for (std::size_t i = 0; i < g_next_order.size(); ++i) {
         mods::Mod* m = mod_by_id(g_next_order[i]);
