@@ -61,7 +61,13 @@ What works:
   it), installs, updates and removes the loader (another mod's `dinput8.dll` is kept aside and put back),
   and lists the mods: On / Off, the load order, each mod's details, install from a `.cleriamod` or a `.zip`
   (the file dialog, a drop on the window, or as its argument), remove to the Recycle Bin. It is the same
-  panel as in the game and writes the same `cleriaore.ini`.
+  panel as in the game and writes the same `cleriaore.ini`, read again before each write so that neither
+  undoes what the other wrote. Turning a mod on turns on what it requires; a mod in error shows why in its
+  row. Its Install also opens `.cleriamod` files with it (CleriaCore's file association, per user): a
+  double-click installs the mod, in the window already open if there is one. A mod installed while the
+  game runs is turned on at the game's next start (CleriaCore's `.cleriamod-enable` queue).
+  For tests, `CLERIAORE_GAME=<folder>` points it at a scratch game folder (no registry, no shortcut) and a
+  file `cleriaore/manager.shot` there asks for its frame as `cleriaore/manager.bmp`.
 
 The hooks are for one build only, the Steam `yso_win.exe` linked 2024-01-08: on any other exe nothing is
 hooked and the log says so.

@@ -25,10 +25,12 @@ pick its `yso_win.exe`.
 
 ## Using mods
 
-**Add a mod.** On the **Mods** page press **Install a mod file...** and pick the mod's `.cleriamod` or
-`.zip`, or just drop the file on the window. It is checked, copied in and turned on.
+**Add a mod.** Double-click the mod's `.cleriamod` file. Or, on the **Mods** page, press **Install a mod
+file...** and pick its `.cleriamod` or `.zip`, or drop the file on the window. It is checked, copied in and
+turned on. Installing a newer version of a mod you have replaces the old one and keeps its settings.
 
-**Turn a mod on or off.** Click its **On / Off**. Changes apply the next time the game starts.
+**Turn a mod on or off.** Click its **On / Off**. Changes apply the next time the game starts. A mod that
+needs another one turns it on with it; a mod that cannot load says why in the list.
 
 **Change the order.** The small arrows move a mod up or down. When two mods change the same thing, the
 one lower in the list wins.

@@ -19,6 +19,7 @@
 
 #include "cleria/content.hpp"
 #include "cleria/ini.hpp"
+#include "cleria/modinstall.hpp"
 #include "cleria/mod_events.hpp"
 #include "cleria/mods.hpp"
 #include "cleria/modscript.hpp"
@@ -203,6 +204,7 @@ void save_order(const std::vector<std::string>& ids) {
 void save_prefs() {
     mods::Prefs p = mods::prefs_of(g_list, g_use);
     if (!g_order.empty()) p.order = g_order;
+    g_ini.load(dir() / "cleriaore.ini");   // what the manager wrote meanwhile is kept
     g_ini.set_int("cleria.mods", "UseMods", p.use ? 1 : 0);
     g_ini.set_string("cleria.mods", "Order", mods::join_list(p.order));
     g_ini.set_string("cleria.mods", "Active", mods::join_list(p.active));
@@ -216,6 +218,7 @@ std::optional<std::string> setting(const std::string& mod, const std::string& ke
     return v;
 }
 bool set_setting(const std::string& mod, const std::string& key, const std::string& value) {
+    g_ini.load(dir() / "cleriaore.ini");
     g_ini.set_string("cleria.mod." + mod, key, value);
     return g_ini.save(dir() / "cleriaore.ini");
 }
@@ -235,6 +238,15 @@ void start(bool hooked) {
     prefs.active = mods::split_list(ini.get_string("cleria.mods", "Active").value_or(""));
 
     const fs::path mods_dir = dir() / "mods";
+    // Mods the manager installed while this game ran (modinstall.hpp queue_enable): turned on now.
+    if (const std::vector<std::string> q = mods::take_enable_queue(mods_dir); !q.empty() && mods::enable_in(prefs, q)) {
+        prefs.use = g_use = true;
+        ini.set_int("cleria.mods", "UseMods", 1);
+        ini.set_string("cleria.mods", "Order", mods::join_list(prefs.order));
+        ini.set_string("cleria.mods", "Active", mods::join_list(prefs.active));
+        ini.save(dir() / "cleriaore.ini");
+        log("[mods] turned on, installed while the game ran: %s", mods::join_list(q).c_str());
+    }
     if (prefs.use) g_list = mods::load(mods_dir, prefs);
     log("[mods] folder %s: %zu installed, active: %s", mods_dir.string().c_str(), g_list.size(),
         mods::active_summary().c_str());

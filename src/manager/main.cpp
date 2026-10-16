@@ -23,6 +23,7 @@
 
 #include "ui.hpp"   // Dear ImGui and the UI kit
 
+#include "cleria/fileassoc.hpp"
 #include "cleria/ini.hpp"
 #include "cleria/modinstall.hpp"
 #include "cleria/mods.hpp"
@@ -105,7 +106,9 @@ struct App {
     std::string sub;                  // the Mods tab's sub-page: "" = the list, or a mod id
     std::optional<std::string> next;  // a sub-page to switch to at the start of the next frame
     std::string removing;             // the mod id whose Remove was pressed once
-    std::vector<fs::path> dropped;    // files dropped on the window
+    std::vector<fs::path> dropped;    // files dropped on the window, or handed over by another CleriaOre.exe
+    bool refresh = false;             // look at the game folder again: the window came back, the game quit
+    bool testing = false;             // CLERIAORE_GAME: a scratch game folder, the registry left alone
 };
 App g;
 ui::Panel g_panel;
@@ -155,7 +158,17 @@ bool game_runs() {
     PROCESSENTRY32W e{};
     e.dwSize = sizeof e;
     bool found = false;
-    for (BOOL ok = Process32FirstW(snap, &e); ok && !found; ok = Process32NextW(snap, &e)) found = _wcsicmp(e.szExeFile, L"yso_win.exe") == 0;
+    for (BOOL ok = Process32FirstW(snap, &e); ok && !found; ok = Process32NextW(snap, &e)) {
+        if (_wcsicmp(e.szExeFile, L"yso_win.exe") != 0) continue;
+        found = true;   // this game folder's, when its path can be read (another copy of the game is not ours)
+        if (const HANDLE p = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, e.th32ProcessID)) {
+            wchar_t path[MAX_PATH];
+            DWORD n = MAX_PATH;
+            std::error_code ec;
+            if (QueryFullProcessImageNameW(p, 0, path, &n)) found = fs::equivalent(fs::path(path), g.game / "yso_win.exe", ec);
+            CloseHandle(p);
+        }
+    }
     CloseHandle(snap);
     return found;
 }
@@ -207,6 +220,10 @@ void set_game(const fs::path& dir, bool remember) {
 }
 
 void find_game() {
+    if (const wchar_t* forced = _wgetenv(L"CLERIAORE_GAME"); forced && *forced) {
+        g.testing = true;
+        return set_game(forced, false);
+    }   // tests: a scratch game folder
     Ini own;
     own.load(own_ini());
     const fs::path saved = own.get_string("manager", "Game").value_or("");
@@ -220,24 +237,54 @@ void apply(mods::Prefs p) {
     mods::arrange(g.list, p);
     std::error_code ec;
     fs::create_directories(ore_dir(), ec);
+    g.ini.load(ore_dir() / "cleriaore.ini");   // what the game wrote since (a mod's settings) is kept
     g.ini.set_int("cleria.mods", "UseMods", p.use ? 1 : 0);
     g.ini.set_string("cleria.mods", "Order", mods::join_list(p.order));
     g.ini.set_string("cleria.mods", "Active", mods::join_list(p.active));
     if (!g.ini.save(ore_dir() / "cleriaore.ini")) say("cleriaore.ini could not be written", true);
 }
 
+const mods::Mod* find_mod(const std::string& id) {
+    for (const mods::Mod& m : g.list)
+        if (m.m.id == id) return &m;
+    return nullptr;
+}
+
+// On: the mods it requires are turned on with it (and theirs). Off: the mods that require it are named,
+// as they will not load without it.
 void toggle_mod(int i) {
     const std::string id = g.list[std::size_t(i)].m.id;
     if (id.empty()) return;
+    const std::string name = g.list[std::size_t(i)].label();
     mods::Prefs p = mods::prefs_of(g.list, g.use);
-    const auto it = std::find(p.active.begin(), p.active.end(), id);
-    if (it == p.active.end()) {
-        p.active.push_back(id);
+    auto on = [&](const std::string& x) { return std::find(p.active.begin(), p.active.end(), x) != p.active.end(); };
+    std::string also, missing, needed_by;
+    if (!on(id)) {
         g.use = true;   // turning a mod on also turns UseMods on
+        std::vector<std::string> todo{id};
+        while (!todo.empty()) {
+            const std::string x = todo.back();
+            todo.pop_back();
+            if (on(x)) continue;
+            p.active.push_back(x);
+            if (x != id) also += (also.empty() ? "" : ", ") + find_mod(x)->label();
+            for (const mods::Dep& d : find_mod(x)->m.requires_) {
+                if (find_mod(d.id)) todo.push_back(d.id);
+                else missing += (missing.empty() ? "" : ", ") + d.id;
+            }
+        }
     } else {
-        p.active.erase(it);
+        p.active.erase(std::find(p.active.begin(), p.active.end(), id));
+        for (const mods::Mod& m : g.list)
+            if (m.enabled && m.m.id != id)
+                for (const mods::Dep& d : m.m.requires_)
+                    if (d.id == id) needed_by += (needed_by.empty() ? "" : ", ") + m.label();
     }
     apply(p);
+    if (!missing.empty()) say(name + " needs " + missing + ", which is not installed", true);
+    else if (!also.empty()) say(name + " is on, with " + also + ", which it needs");
+    else if (!needed_by.empty()) say(name + " is off: " + needed_by + " cannot load without it", true);
+    else say(name + (on(id) ? " is on" : " is off") + std::string(g.running ? ": restart the game to apply" : ""));
 }
 
 bool move_mod(int i, int d) {
@@ -258,8 +305,9 @@ void install_mod(const fs::path& file) {
         g.use = p.use;
         g.list = mods::discover(mods_dir());
         apply(p);
+        if (g.running) mods::queue_enable(mods_dir(), r.id);   // the game may write its own list over ours before it quits
     }
-    say(r.message(), !r.ok);
+    say(r.message() + (r.ok && g.running ? ": restart the game to play with it" : ""), !r.ok);
 }
 
 // Into the Recycle Bin: its folder, or its .zip / .cleriamod.
@@ -278,6 +326,25 @@ void remove_mod(const mods::Mod& m) {
     say(name + " was moved to the Recycle Bin");
 }
 
+// .cleriamod files opened by a double-click with the installed CleriaOre.exe (CleriaCore's file association,
+// fileassoc.hpp: the same ProgId, so whichever of the two was installed last opens them).
+fs::path installed_exe() { return ore_dir() / "CleriaOre.exe"; }
+std::string installed_exe_utf8() {
+    const std::u8string u = installed_exe().u8string();
+    return std::string(u.begin(), u.end());
+}
+bool opens_mod_files() {
+    const auto reg = g.testing ? nullptr : fileassoc::user_registry();
+    return reg != nullptr && fileassoc::is_current(*reg, installed_exe_utf8());
+}
+bool associate(bool want) {
+    const auto reg = g.testing ? nullptr : fileassoc::user_registry();
+    if (!reg) return false;
+    bool ok = true;
+    if (fileassoc::sync(*reg, installed_exe_utf8(), want, &ok) != fileassoc::Action::None) fileassoc::notify_shell();
+    return ok;
+}
+
 // The loader and the fonts into the game folder, this exe beside the mods, a shortcut to it in the Start menu.
 void install_loader() {
     const fs::path to = g.game / "dinput8.dll", exe = ore_dir() / "CleriaOre.exe";
@@ -292,7 +359,8 @@ void install_loader() {
     fs::create_directories(mods_dir(), ec);
     write_fonts(ore_dir() / "fonts");
     if (!fs::equivalent(g.self, exe, ec)) fs::copy_file(g.self, exe, fs::copy_options::overwrite_existing, ec);
-    const bool linked = fs::exists(exe, ec) && make_shortcut(shortcut(), exe);
+    const bool linked = fs::exists(exe, ec) && (g.testing || make_shortcut(shortcut(), exe));
+    if (linked) associate(true);
     look_at_game();
     say(linked ? "Installed. CleriaOre is in the Start menu; start the game and press F1" : "The loader is installed. Start the game and press F1");
 }
@@ -304,6 +372,7 @@ void remove_loader() {
     const bool back = fs::exists(g.game / kBackup, ec);
     if (back) fs::rename(g.game / kBackup, g.game / "dinput8.dll", ec);
     fs::remove(shortcut(), ec);
+    associate(false);   // only when it is ours
     look_at_game();
     say(back ? "The loader is removed; the dinput8.dll that was there before is back" : "The loader is removed. The mods and their settings stay in cleriaore/");
 }
@@ -379,7 +448,13 @@ void mod_row(ui::List& L, int i) {
     const std::string& name = m.label();
     ui::text_sh(L.dl, ui::F.serif, lpx, {x, cy - lpx * 0.58f}, ui::kLabel, name.c_str());
     x += ui::text_size(ui::F.serif, lpx, name.c_str()).x + 10.0f * S;
-    if (x < ax - 60.0f * S) ui::text(L.dl, ui::F.body, 15.0f * S, {x, cy - 15.0f * S * 0.55f}, ui::kMuted, m.m.version.c_str());
+    if (x < ax - 60.0f * S) {   // its version, or why it cannot load
+        const bool bad = m.state == mods::State::Error && !m.errors.empty();
+        L.dl->PushClipRect({x, r.a.y}, {ax - 18.0f * S, r.b.y}, true);
+        ui::text(L.dl, ui::F.body, 15.0f * S, {x, cy - 15.0f * S * 0.55f}, bad ? ui::kWarn : ui::kMuted,
+                 bad ? m.errors.front().c_str() : m.m.version.c_str());
+        L.dl->PopClipRect();
+    }
     // the state: a click on it toggles
     const char* v = m.state == mods::State::Error ? "Error" : m.enabled ? "On" : "Off";
     const ImU32 vc = m.state == mods::State::Error ? ui::kWarn : m.enabled ? ui::kGood : ui::kMuted;
@@ -538,6 +613,13 @@ void game_page(ui::List& L) {
                                             "runs as shipped. The mods and their settings stay in cleriaore/.",
                    g.loader == Loader::Ours || g.loader == Loader::OtherVersion))
         remove_loader();
+    if (g.loader == Loader::Ours && !g.testing) {
+        const bool ours = opens_mod_files();
+        ui::info(L, "Mod files", ours ? "Open with CleriaOre" : "Not opened by CleriaOre", ours ? ui::kGood : ui::kMuted,
+                 "A double-click on a downloaded .cleriamod installs it and turns it on.");
+        if (!ours && ui::button(L, "Open mod files with CleriaOre", "Makes a double-click on a .cleriamod file install it with CleriaOre."))
+            say(associate(true) ? "A double-click on a .cleriamod file now installs it" : "The file association could not be written", !opens_mod_files());
+    }
     ui::section(L, "Play");
     if (ui::button(L, "Start the game", "Through Steam.", !g.running)) ShellExecuteW(nullptr, L"open", kSteamRun, nullptr, nullptr, SW_SHOWNORMAL);
     if (ui::button(L, "Open the game folder")) open_path(g.game);
@@ -550,6 +632,32 @@ IDirect3D9* g_d3d = nullptr;
 IDirect3DDevice9* g_dev = nullptr;
 D3DPRESENT_PARAMETERS g_pp{};
 bool g_lost = false;
+
+// Tests (CLERIAORE_GAME set): a file <game>/cleriaore/manager.shot asks for the frame drawn, written beside it as
+// manager.bmp (the window's picture cannot be had from outside: Direct3D draws it).
+void test_shot() {
+    std::error_code ec;
+    const fs::path ask = ore_dir() / "manager.shot";
+    if (!g.testing || !fs::exists(ask, ec)) return;
+    IDirect3DSurface9 *back = nullptr, *copy = nullptr;
+    D3DSURFACE_DESC d{};
+    if (g_dev->GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO, &back) != D3D_OK) return;
+    back->GetDesc(&d);
+    D3DLOCKED_RECT lr{};
+    if (g_dev->CreateOffscreenPlainSurface(d.Width, d.Height, d.Format, D3DPOOL_SYSTEMMEM, &copy, nullptr) == D3D_OK &&
+        g_dev->GetRenderTargetData(back, copy) == D3D_OK && copy->LockRect(&lr, nullptr, D3DLOCK_READONLY) == D3D_OK) {
+        BITMAPFILEHEADER fh{0x4D42, 0, 0, 0, sizeof(BITMAPFILEHEADER) + sizeof(BITMAPINFOHEADER)};
+        BITMAPINFOHEADER ih{sizeof ih, LONG(d.Width), -LONG(d.Height), 1, 32, BI_RGB};
+        fh.bfSize = fh.bfOffBits + d.Width * d.Height * 4;
+        std::ofstream f(ore_dir() / "manager.bmp", std::ios::binary);
+        f.write(reinterpret_cast<const char*>(&fh), sizeof fh).write(reinterpret_cast<const char*>(&ih), sizeof ih);
+        for (UINT y = 0; y < d.Height; ++y) f.write(static_cast<const char*>(lr.pBits) + y * UINT(lr.Pitch), std::streamsize(d.Width) * 4);
+        copy->UnlockRect();
+        fs::remove(ask, ec);
+    }
+    if (copy) copy->Release();
+    back->Release();
+}
 
 void reset_device() {
     ImGui_ImplDX9_InvalidateDeviceObjects();
@@ -575,6 +683,15 @@ LRESULT CALLBACK wndproc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp) {
             DragFinish(drop);
             return 0;
         }
+        case WM_COPYDATA: {   // a file another CleriaOre.exe was started with (a double-click on a .cleriamod)
+            const auto* cd = reinterpret_cast<const COPYDATASTRUCT*>(lp);
+            if (cd->dwData == 1 && cd->cbData >= sizeof(wchar_t))
+                g.dropped.push_back(std::wstring(static_cast<const wchar_t*>(cd->lpData), cd->cbData / sizeof(wchar_t) - 1));
+            return TRUE;
+        }
+        case WM_ACTIVATEAPP:
+            if (wp) g.refresh = true;   // a mod copied into the folder meanwhile shows at once
+            break;
         case WM_GETMINMAXINFO:
             reinterpret_cast<MINMAXINFO*>(lp)->ptMinTrackSize = {700, 500};
             return 0;
@@ -594,7 +711,16 @@ bool frame() {
     for (const fs::path& f : g.dropped) install_mod(f);
     g.dropped.clear();
     static int age = 0;
-    if (age++ % 60 == 0) g.running = game_runs();
+    if (age++ % 60 == 0) {
+        const bool was = g.running;
+        g.running = game_runs();
+        if (was && !g.running) g.refresh = true;   // what the game's F1 panel changed is read again
+    }
+    if (g.refresh) {
+        g.refresh = false;
+        look_at_game();
+        reload_mods();
+    }
     const ui::Nav nav = ui::read_nav();
     g_panel.open = true;
     const bool open = g_panel.draw(ImGui::GetBackgroundDrawList(), w, h, nav);
@@ -613,6 +739,16 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int show) {
     int argc = 0;
     if (wchar_t** argv = CommandLineToArgvW(GetCommandLineW(), &argc))   // CleriaOre.exe <a mod file>: install it
         for (int i = 1; i < argc; ++i) g.dropped.push_back(argv[i]);
+    if (const HWND other = FindWindowW(L"CleriaOre", nullptr)) {   // one window: the files go to it
+        for (const fs::path& f : g.dropped) {
+            const std::wstring w = fs::absolute(f).wstring();
+            COPYDATASTRUCT cd{1, DWORD((w.size() + 1) * sizeof(wchar_t)), const_cast<wchar_t*>(w.c_str())};
+            SendMessageW(other, WM_COPYDATA, 0, reinterpret_cast<LPARAM>(&cd));
+        }
+        if (IsIconic(other)) ShowWindow(other, SW_RESTORE);
+        SetForegroundWindow(other);
+        return 0;
+    }
 
     WNDCLASSEXW wc{};
     wc.cbSize = sizeof wc;
@@ -678,6 +814,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int show) {
             ImGui_ImplDX9_RenderDrawData(ImGui::GetDrawData());
             g_dev->EndScene();
         }
+        test_shot();
         if (g_dev->Present(nullptr, nullptr, nullptr, nullptr) == D3DERR_DEVICELOST) g_lost = true;
     }
     ImGui_ImplDX9_Shutdown();
