@@ -77,6 +77,9 @@ What works:
   settings: its Lua script is started in the manager on a host with no game, no network (`Limits::network`)
   and no events, and its pages are drawn with the panel's widgets (a page's buttons do nothing there). A mod installed while the
   game runs is turned on at the game's next start (CleriaCore's `.cleriamod-enable` queue).
+  Updates: a mod whose `Website` is a GitHub repository is looked up there when the manager opens (its latest
+  release's tag, compared with the mod's version); a newer release's `.cleriamod` is downloaded and installed as
+  a dropped file is, once it is checked to hold the same mod id, and a mod that was off stays off.
   For tests, `CLERIAORE_GAME=<folder>` points it at a scratch game folder (no registry, no shortcut) and a
   file `cleriaore/manager.shot` there asks for its frame as `cleriaore/manager.bmp`.
 

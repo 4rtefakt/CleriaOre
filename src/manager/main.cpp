@@ -18,16 +18,21 @@
 #include <cstring>
 #include <fstream>
 #include <iterator>
+#include <map>
+#include <mutex>
 #include <optional>
 #include <regex>
+#include <thread>
 
 #include "ui.hpp"   // Dear ImGui and the UI kit
 
 #include "cleria/fileassoc.hpp"
 #include "cleria/ini.hpp"
+#include "cleria/json.hpp"
 #include "cleria/modinstall.hpp"
 #include "cleria/mods.hpp"
 #include "cleria/modscript.hpp"
+#include "cleria/net/socket.hpp"
 #include "imgui_impl_dx9.h"
 #include "imgui_impl_win32.h"
 #include "mark.hpp"
@@ -309,6 +314,7 @@ void install_mod(const fs::path& file) {
         g.use = p.use;
         g.list = mods::discover(mods_dir());
         apply(p);
+        g_scripts.erase(r.id);   // its page runs the new script
         if (g.running) mods::queue_enable(mods_dir(), r.id);   // the game may write its own list over ours before it quits
     }
     say(r.message() + (r.ok && g.running ? ": restart the game to play with it" : ""), !r.ok);
@@ -329,6 +335,8 @@ void remove_mod(const mods::Mod& m) {
     apply(p);
     say(name + " was moved to the Recycle Bin");
 }
+
+#include "updates.inl"   // a mod's newer release on GitHub
 
 // .cleriamod files opened by a double-click with the installed CleriaOre.exe (CleriaCore's file association,
 // fileassoc.hpp: the same ProgId, so whichever of the two was installed last opens them).
@@ -452,11 +460,12 @@ void mod_row(ui::List& L, int i) {
     const std::string& name = m.label();
     ui::text_sh(L.dl, ui::F.serif, lpx, {x, cy - lpx * 0.58f}, ui::kLabel, name.c_str());
     x += ui::text_size(ui::F.serif, lpx, name.c_str()).x + 10.0f * S;
-    if (x < ax - 60.0f * S) {   // its version, or why it cannot load
+    if (x < ax - 60.0f * S) {   // its version, why it cannot load, or its update
         const bool bad = m.state == mods::State::Error && !m.errors.empty();
+        const std::optional<Update> up = update_of(m.m.id);
+        const std::string note = bad ? m.errors.front() : up ? m.m.version + "  \xE2\x86\x92  " + up->version : m.m.version;
         L.dl->PushClipRect({x, r.a.y}, {ax - 18.0f * S, r.b.y}, true);
-        ui::text(L.dl, ui::F.body, 15.0f * S, {x, cy - 15.0f * S * 0.55f}, bad ? ui::kWarn : ui::kMuted,
-                 bad ? m.errors.front().c_str() : m.m.version.c_str());
+        ui::text(L.dl, ui::F.body, 15.0f * S, {x, cy - 15.0f * S * 0.55f}, bad ? ui::kWarn : up ? ui::kGold : ui::kMuted, note.c_str());
         L.dl->PopClipRect();
     }
     // the state: a click on it toggles
@@ -492,6 +501,13 @@ void mod_page(ui::List& L) {
     if (i < 0) { g.next = ""; return; }   // gone (a rescan, a removal)
     mods::Mod& m = g.list[std::size_t(i)];
     if (ui::back_row(L, "Mods", m.label().c_str(), describe(m).c_str())) g.next = "";
+    if (const std::optional<Update> up = update_of(m.m.id)) {
+        ui::section(L, "Update");
+        const std::string label = "Update to " + up->version;
+        if (ui::button(L, label.c_str(), ("Downloads " + up->file + " from the mod's GitHub page and installs it in place of " +
+                                          m.m.version + ". Its settings stay.").c_str()))
+            download_update(m.m.id);
+    }
     settings_pages(L, m);
     ui::section(L, "Mod");
     bool on = m.enabled;
@@ -569,6 +585,25 @@ void mods_page(ui::List& L) {
                                                 "turned on. You can also drop the file on this window.")) {
         if (const fs::path f = pick_file(GetActiveWindow(), L"Install a mod", L"Mods (*.cleriamod;*.zip)\0*.cleriamod;*.zip\0All files\0*.*\0"); !f.empty())
             install_mod(f);
+    }
+    {
+        std::string status;
+        bool busy;
+        std::vector<std::string> ids;
+        {
+            std::lock_guard lk(g_up.mu);
+            status = g_up.status;
+            busy = g_up.busy;
+            for (const auto& [id, u] : g_up.found) ids.push_back(id);
+        }
+        const char* desc = "Looks on the GitHub page of each mod that names one (its Website) for a newer release.";
+        if (ui::button(L, busy ? status.c_str() : ids.size() > 1 ? ("Update " + std::to_string(ids.size()) + " mods").c_str()
+                                                 : "Check for updates", ids.size() > 1 ? "Downloads and installs every update found. "
+                                                                                         "Each mod's settings stay." : desc, !busy)) {
+            if (ids.size() > 1) g_up_queue = ids;
+            else check_updates();
+        }
+        if (!busy && !status.empty()) ui::info(L, "Updates", status.c_str(), ui::kMuted, desc);
     }
     if (ui::toggle(L, "Use mods", &g.use, "Off runs the game exactly as shipped, whatever is installed or turned on."))
         apply(mods::prefs_of(g.list, g.use));
@@ -712,6 +747,7 @@ bool frame() {
     ui::S = (std::min)(w / (ui::kPanelW + 40.0f), h / (ui::kPanelH + 40.0f));   // the panel, and 20 around it
     for (const fs::path& f : g.dropped) install_mod(f);
     g.dropped.clear();
+    take_updates();
     static int age = 0;
     if (age++ % 60 == 0) {
         const bool was = g.running;
@@ -795,6 +831,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int show) {
     g_panel.add("Game", &game_page);
     if (g.game.empty() || g.loader != Loader::Ours) g_panel.tab = 1;   // first things first
     ShowWindow(wnd, show);
+    check_updates();
 
     for (bool run = true; run;) {
         MSG msg;
