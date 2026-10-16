@@ -577,6 +577,9 @@ void mods_page(ui::List& L) {
                            : nullptr);
     }
     if (!g.msg.empty()) ui::info(L, "", g.msg.c_str(), g.msg_bad ? ui::kWarn : ui::kGood, g.msg.c_str());
+    if (!g.running && (g.loader == Loader::Ours || g.loader == Loader::OtherVersion) &&
+        ui::button(L, "Start the game", "Through Steam, with the mods as they are set here."))
+        ShellExecuteW(nullptr, L"open", kSteamRun, nullptr, nullptr, SW_SHOWNORMAL);
     ui::section(L, "Add and update");
     if (ui::button(L, "Install a mod file...", "A .cleriamod or a .zip of a mod. It is checked, copied into the mods folder and "
                                                 "turned on. You can also drop the file on this window.")) {
