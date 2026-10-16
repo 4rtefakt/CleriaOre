@@ -43,6 +43,7 @@ constexpr int kFlagCharacter = 150, kFlagWeapon = 0x94, kFlagScene = 0x1f9;
 constexpr std::uintptr_t kMaxMp = 0x76a734, kMp = 0x76a738, kAtk = 0x76a73c, kDef = 0x76a740;   // floats of the same record
 constexpr std::uintptr_t kExpNext = 0x76b910;     // float: the EXP total the next level needs
 constexpr std::uintptr_t kBoost = 0x76c1b4;       // float: the Boost gauge, 30000 = full
+constexpr std::uintptr_t kBookPopup = 0x738b40;   // int: the book's Use popup state, 3 = the warp map (CleriaCore's pstate_)
 constexpr std::uintptr_t kBuffs = 0x76b900;       // floats: the MP, Strength and Defense Drop buffs ...
 constexpr std::uintptr_t kBuffTimers = 0x76c19c;  // ... and the ticks left of Strength, Defense, MP
 constexpr std::uintptr_t kFix = 0x75ad90;         // int32[2]: the scripts' Fix counters; any set = the world is held
@@ -385,14 +386,27 @@ struct RetailHost : script::Host {
         return reinterpret_cast<INT_PTR>(ShellExecuteA(nullptr, "open", url.c_str(), nullptr, nullptr, SW_SHOWNORMAL)) > 32;
     }
     // What the game is doing, as far as the retail host tells: its own menus, book and dialogs are "cutscene"
-    // here when they hold the world, "play" otherwise.
+    // here when they hold the world, "play" otherwise; the warp map alone is told apart ("map").
     std::string game_state() override {
         if (!in_game()) return "title";
         if (ui_panel_open()) return "panel";
         if (const script::Mod* m = window_mod(); m && m->window()->pause) return "window";
         if (paused()) return "held";
         if (at<float>(kHp) < 1) return "gameover";
+        if (warp_map_open()) return "map";
         return frozen() ? "cutscene" : "play";
+    }
+    // The popup state stays 3 after the map's warp until the book opens its popup again, so the room the map opened
+    // in is kept: once the room changes the map is closed until the state leaves 3 (the retail Archipelago mod's
+    // warpmap.cpp, live-tested; walking back into that room does not open it again).
+    bool warp_map_open() {
+        static int opened_in = -1;
+        static bool stale = false;
+        if (at<std::int32_t>(kBookPopup) != 3) { opened_in = -1; stale = false; return false; }
+        const int scene = flags()[kFlagScene];
+        if (opened_in == -1) opened_in = scene;
+        if (scene != opened_in) stale = true;
+        return !stale;
     }
     bool key_down(const std::string& name) override { return ui_key_down(name, false); }
     bool pad_down(const std::string& name) override { return ui_key_down(name, true); }

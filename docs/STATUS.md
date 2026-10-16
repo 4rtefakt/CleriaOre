@@ -31,8 +31,8 @@ What works:
 - `player.set_modifier` (max HP, ATK, DEF), on top of each of the game's stat recomputes.
 - API 7's host side: a mod's own window (`cleria.ui.window`, `message`, `choose`), `p:text`, `p:progress`,
   `p:table` and `p:image`, input actions and key state (`cleria.input`), timers, the bus, commands across
-  mods, script reload, `game.state` (`title`, `play`, `cutscene`, `panel`, `window`, `held`, `gameover`: the
-  game's own menus are not told apart) and `state_changed`, a mod's `.dds` images on its HUD layers.
+  mods, script reload, `game.state` (`title`, `play`, `cutscene`, `panel`, `window`, `held`, `gameover`, and `map` for the
+  warp map: the game's other menus are not told apart) and `state_changed`, a mod's `.dds` images on its HUD layers.
 - `cleria.world`: the room's monsters (`actors`), `to_screen` and the `d:world_*` drawing (the camera the
   game publishes), `set_actor`, `remove`, and `spawn` for a cast the room already holds (the game loads a
   monster's model with the room). An actor's id is the game's own instance id, good for the room.
