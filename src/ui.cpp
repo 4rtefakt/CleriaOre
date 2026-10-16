@@ -159,6 +159,12 @@ void mod_page(ui::List& L) {
 }
 
 void mods_page(ui::List& L) {
+    static std::string shown;   // the page drawn last frame: another one starts at its top
+    if (shown != g_sub) {
+        shown = g_sub;
+        L.sel = 0;
+        L.scroll = L.scroll_to = 0;
+    }
     if (!g_sub.empty()) return mod_page(L);
     ui::section(L, "Mods");
     if (mod_list().empty())
