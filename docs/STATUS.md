@@ -79,7 +79,9 @@ What works:
   game runs is turned on at the game's next start (CleriaCore's `.cleriamod-enable` queue).
   Updates: a mod whose `Website` is a GitHub repository is looked up there when the manager opens (its latest
   release's tag, compared with the mod's version); a newer release's `.cleriamod` is downloaded and installed as
-  a dropped file is, once it is checked to hold the same mod id, and a mod that was off stays off.
+  a dropped file is, once it is checked to hold the same mod id, and a mod that was off stays off. CleriaOre
+  itself is looked up the same way (4rtefakt/CleriaOre's latest release, a `.exe`): the Game page then offers to
+  download it, and starts it once this window has closed. GitHub answers only for a public repository.
   For tests, `CLERIAORE_GAME=<folder>` points it at a scratch game folder (no registry, no shortcut) and a
   file `cleriaore/manager.shot` there asks for its frame as `cleriaore/manager.bmp`.
 
