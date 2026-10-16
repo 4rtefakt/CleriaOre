@@ -650,6 +650,23 @@ void game_page(ui::List& L) {
                                             "runs as shipped. The mods and their settings stay in cleriaore/.",
                    g.loader == Loader::Ours || g.loader == Loader::OtherVersion))
         remove_loader();
+    {
+        std::optional<Update> self;
+        bool busy;
+        std::string status;
+        {
+            std::lock_guard lk(g_up.mu);
+            self = g_up.self;
+            busy = g_up.busy;
+            status = g_up.status;
+        }
+        if (self) {
+            const std::string label = busy ? status : "Download CleriaOre " + self->version;
+            if (ui::button(L, label.c_str(), ("A newer CleriaOre is out (" + self->version + ", this one is " + ore::kVersion +
+                                              "). It is downloaded and started; then press Update the loader in it.").c_str(), !busy))
+                download_self();
+        }
+    }
     if (g.loader == Loader::Ours && !g.testing) {
         const bool ours = opens_mod_files();
         ui::info(L, "Mod files", ours ? "Open with CleriaOre" : "Not opened by CleriaOre", ours ? ui::kGood : ui::kMuted,
@@ -861,5 +878,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int show) {
     ImGui::DestroyContext();
     g_dev->Release();
     g_d3d->Release();
+    DestroyWindow(wnd);
+    if (!g_launch_after.empty()) ShellExecuteW(nullptr, L"open", g_launch_after.wstring().c_str(), nullptr, nullptr, SW_SHOWNORMAL);
     return 0;
 }
