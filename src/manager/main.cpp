@@ -27,6 +27,7 @@
 #include "cleria/ini.hpp"
 #include "cleria/modinstall.hpp"
 #include "cleria/mods.hpp"
+#include "cleria/modscript.hpp"
 #include "imgui_impl_dx9.h"
 #include "imgui_impl_win32.h"
 #include "mark.hpp"
@@ -121,6 +122,8 @@ void say(const std::string& text, bool bad = false) {
     g.msg_bad = bad;
 }
 
+#include "settings.inl"   // a mod's settings page, its script run here
+
 bool read_file(const fs::path& p, std::string& out) {
     std::ifstream f(p, std::ios::binary);
     if (!f) return false;
@@ -193,6 +196,7 @@ void look_at_game() {
 }
 
 void reload_mods() {
+    g_scripts.clear();   // started again at their page's next draw, on what the files say now
     g.list.clear();
     g.ini = Ini{};
     if (g.game.empty()) return;
@@ -488,6 +492,7 @@ void mod_page(ui::List& L) {
     if (i < 0) { g.next = ""; return; }   // gone (a rescan, a removal)
     mods::Mod& m = g.list[std::size_t(i)];
     if (ui::back_row(L, "Mods", m.label().c_str(), describe(m).c_str())) g.next = "";
+    settings_pages(L, m);
     ui::section(L, "Mod");
     bool on = m.enabled;
     if (ui::toggle(L, "Enabled", &on, "Turns the mod on or off. New mods start off, so a dropped-in folder never changes the "
@@ -503,9 +508,6 @@ void mod_page(ui::List& L) {
         ui::row_texts(L, r, "Load order", pos, true);
         if (r.delta != 0 && move_mod(i, r.delta)) return;   // `m` is another mod now
     }
-    if (!m.m.script.empty())
-        ui::info(L, "Settings", "In the game: F1 > Mods", ui::kMuted, "This mod runs a Lua script. Its own settings are on its page in "
-                                                                     "the game's F1 panel, once it is on and the game runs.");
     ui::section(L, "About");
     if (!m.m.version.empty()) ui::info(L, "Version", m.m.version.c_str());
     if (!m.m.author.empty()) ui::info(L, "Author", m.m.author.c_str());
