@@ -63,7 +63,7 @@ one lower in the list wins.
 game applies the next time it starts.
 
 **Update a mod.** CleriaOre looks for updates when it opens: a mod with a newer release shows its new
-version in gold in the list. Open the mod and press **Update to ...**, or press **Update N mods** under
+version in gold in the list. Open the mod and press **Update to ...**, or press **Update N mods** above
 the list. It works for mods whose `Website` is their GitHub page. Each mod's settings stay, and a mod you
 had turned off stays off.
 

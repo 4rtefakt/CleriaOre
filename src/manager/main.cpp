@@ -577,10 +577,7 @@ void mods_page(ui::List& L) {
                            : nullptr);
     }
     if (!g.msg.empty()) ui::info(L, "", g.msg.c_str(), g.msg_bad ? ui::kWarn : ui::kGood, g.msg.c_str());
-    ui::section(L, "Installed mods");
-    if (g.list.empty()) ui::info(L, "None", "Install a mod file, or drop one on this window", ui::kMuted);
-    for (int i = 0; i < int(g.list.size()); ++i) mod_row(L, i);
-    ui::section(L, "Options");
+    ui::section(L, "Add and update");
     if (ui::button(L, "Install a mod file...", "A .cleriamod or a .zip of a mod. It is checked, copied into the mods folder and "
                                                 "turned on. You can also drop the file on this window.")) {
         if (const fs::path f = pick_file(GetActiveWindow(), L"Install a mod", L"Mods (*.cleriamod;*.zip)\0*.cleriamod;*.zip\0All files\0*.*\0"); !f.empty())
@@ -596,15 +593,19 @@ void mods_page(ui::List& L) {
             busy = g_up.busy;
             for (const auto& [id, u] : g_up.found) ids.push_back(id);
         }
-        const char* desc = "Looks on the GitHub page of each mod that names one (its Website) for a newer release.";
+        const std::string desc = std::string(ids.size() > 1 ? "Downloads and installs every update found. Each mod's settings stay."
+                                                            : "Looks on the GitHub page of each mod that names one (its Website) for a "
+                                                              "newer release.") + (status.empty() ? "" : "\n\nLast check: " + status);
         if (ui::button(L, busy ? status.c_str() : ids.size() > 1 ? ("Update " + std::to_string(ids.size()) + " mods").c_str()
-                                                 : "Check for updates", ids.size() > 1 ? "Downloads and installs every update found. "
-                                                                                         "Each mod's settings stay." : desc, !busy)) {
+                                                 : "Check for updates", desc.c_str(), !busy)) {
             if (ids.size() > 1) g_up_queue = ids;
             else check_updates();
         }
-        if (!busy && !status.empty()) ui::info(L, "Updates", status.c_str(), ui::kMuted, desc);
     }
+    ui::section(L, "Installed mods");
+    if (g.list.empty()) ui::info(L, "None", "Install a mod file, or drop one on this window", ui::kMuted);
+    for (int i = 0; i < int(g.list.size()); ++i) mod_row(L, i);
+    ui::section(L, "Options");
     if (ui::toggle(L, "Use mods", &g.use, "Off runs the game exactly as shipped, whatever is installed or turned on."))
         apply(mods::prefs_of(g.list, g.use));
     if (ui::button(L, "Open mods folder", "A mod is a folder (or a .zip of one) with a mod.ini; one dropped in there shows here "
