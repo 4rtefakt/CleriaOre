@@ -220,6 +220,12 @@ bool set_setting(const std::string& mod, const std::string& key, const std::stri
     return g_ini.save(dir() / "cleriaore.ini");
 }
 
+bool loader_option(const char* key, bool def) { return g_ini.get_int("cleriaore", key).value_or(def ? 1 : 0) != 0; }
+void set_loader_option(const char* key, bool on) {
+    g_ini.set_int("cleriaore", key, on ? 1 : 0);
+    g_ini.save(dir() / "cleriaore.ini");
+}
+
 void wait_started() { WaitForSingleObject(g_started, INFINITE); }
 
 void start(bool hooked) {
@@ -260,6 +266,12 @@ void start(bool hooked) {
 Sidecar& sidecar() { return g_sidecar; }
 
 void request_reload(const std::string& mod) { g_reload.insert(mod); }
+std::set<std::string> g_skip_mods;      // the mods that ask for the cutscene skip (game.skip_cutscenes)
+void set_skip(const std::string& mod, bool on) {
+    if (on) g_skip_mods.insert(mod);
+    else g_skip_mods.erase(mod);
+    set_cutscene_skip(!g_skip_mods.empty());
+}
 void set_pause(const std::string& mod, bool on) {
     if (on) g_pause.insert(mod);
     else g_pause.erase(mod);
@@ -366,6 +378,7 @@ void reload(const std::string& id) {
         g_tune.erase(id);
         g_hud_hidden.erase(id);
         g_speed.erase(id);
+        set_skip(id, false);
         recompute_stats();
         up.reset();
         up = std::make_unique<script::Mod>(def->m.id, def->label(), def->m.version, def->root, host());

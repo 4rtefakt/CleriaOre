@@ -74,6 +74,51 @@ script::Mod* script_of(const std::string& id) {
     return nullptr;
 }
 
+// ---- the borderless window ----
+// The game has windowed and exclusive fullscreen, no borderless: in windowed mode the frame is dropped and the
+// window covers its monitor, which with the game's resolution at the monitor's is borderless fullscreen
+// ([cleriaore] Borderless, the retail Archipelago client's borderless=1). Exclusive fullscreen is left alone.
+IDirect3DDevice9* g_dev = nullptr;
+HWND g_wnd = nullptr;
+bool g_borderless = false;            // the window is made borderless now
+LONG g_style0 = 0;                    // ... and what it was before
+RECT g_rect0{};
+
+bool windowed(IDirect3DDevice9* dev) {
+    IDirect3DSwapChain9* sc = nullptr;
+    if (!dev || FAILED(dev->GetSwapChain(0, &sc)) || !sc) return false;
+    D3DPRESENT_PARAMETERS pp{};
+    const HRESULT hr = sc->GetPresentParameters(&pp);
+    sc->Release();
+    return SUCCEEDED(hr) && pp.Windowed;
+}
+
+void set_borderless(bool on) {
+    if (!g_wnd) return;
+    if (on) {
+        if (!windowed(g_dev)) return;
+        MONITORINFO mi{};
+        mi.cbSize = sizeof mi;
+        if (!GetMonitorInfoW(MonitorFromWindow(g_wnd, MONITOR_DEFAULTTONEAREST), &mi)) return;
+        if (!g_borderless) {
+            g_style0 = GetWindowLongW(g_wnd, GWL_STYLE);
+            GetWindowRect(g_wnd, &g_rect0);
+        }
+        const LONG style = g_style0 & ~(WS_CAPTION | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_SYSMENU);
+        SetWindowLongW(g_wnd, GWL_STYLE, style | WS_POPUP);
+        const RECT& m = mi.rcMonitor;
+        SetWindowPos(g_wnd, HWND_TOP, m.left, m.top, m.right - m.left, m.bottom - m.top,
+                     SWP_FRAMECHANGED | SWP_NOOWNERZORDER | SWP_SHOWWINDOW);
+        if (!g_borderless) log("[ui] borderless: the window covers its monitor, %ldx%ld", m.right - m.left, m.bottom - m.top);
+        g_borderless = true;
+    } else if (g_borderless) {
+        SetWindowLongW(g_wnd, GWL_STYLE, g_style0);
+        SetWindowPos(g_wnd, nullptr, g_rect0.left, g_rect0.top, g_rect0.right - g_rect0.left, g_rect0.bottom - g_rect0.top,
+                     SWP_FRAMECHANGED | SWP_NOOWNERZORDER | SWP_NOZORDER | SWP_SHOWWINDOW);
+        g_borderless = false;
+    }
+}
+
 // The Mods tab: the list, or one mod's page.
 void mods_page(ui::List& L) {
     if (!g_sub.empty()) {
@@ -136,6 +181,14 @@ void mods_page(ui::List& L) {
                 break;
             }
         }
+    }
+    ui::section(L, "Window");
+    bool borderless = loader_option("Borderless", false);
+    if (ui::toggle(L, "Borderless window", &borderless,
+                   "In the game's windowed mode, no frame and the whole monitor: with the game's resolution set to the "
+                   "monitor's, this is borderless fullscreen. Not in the game's own fullscreen.")) {
+        set_loader_option("Borderless", borderless);
+        set_borderless(borderless);
     }
 }
 
@@ -436,6 +489,10 @@ HRESULT WINAPI hook_reset(IDirect3DDevice9* dev, D3DPRESENT_PARAMETERS* pp) {
     if (g_ready) ImGui_ImplDX9_InvalidateDeviceObjects();
     const HRESULT hr = g_reset(dev, pp);
     if (g_ready) ImGui_ImplDX9_CreateDeviceObjects();
+    if (SUCCEEDED(hr) && g_wnd && loader_option("Borderless", false)) {
+        if (pp && !pp->Windowed) g_borderless = false;   // the game's fullscreen took the window over
+        else set_borderless(true);
+    }
     return hr;
 }
 
@@ -466,6 +523,9 @@ void init(IDirect3DDevice9* dev) {
     ImGui_ImplWin32_Init(cp.hFocusWindow);
     ImGui_ImplDX9_Init(dev);
     g_wndproc = reinterpret_cast<WNDPROC>(SetWindowLongPtrW(cp.hFocusWindow, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(&hook_wndproc)));
+    g_dev = dev;
+    g_wnd = cp.hFocusWindow;
+    if (loader_option("Borderless", false)) set_borderless(true);
     ui::Page& mods = g_panel.add("Mods", &mods_page);
     mods.back = [](ui::List&) {
         if (g_sub.empty()) return false;
