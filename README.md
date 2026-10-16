@@ -58,8 +58,9 @@ needs another one turns it on with it; a mod that cannot load says why in the li
 **Change the order.** The small arrows move a mod up or down. When two mods change the same thing, the
 one lower in the list wins.
 
-**A mod's own settings** are in the game: press **F1**, open **Mods**, then the mod. The game pauses
-while the panel is open.
+**A mod's own settings** are on its page: click the mod in the list. They are also in the game: press
+**F1**, open **Mods**, then the mod (the game pauses while the panel is open). A change made outside the
+game applies the next time it starts.
 
 **Remove a mod.** Open the mod's page and press **Remove this mod** twice. It goes to the Recycle Bin.
 

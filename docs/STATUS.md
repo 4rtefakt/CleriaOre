@@ -73,7 +73,9 @@ What works:
   panel as in the game and writes the same `cleriaore.ini`, read again before each write so that neither
   undoes what the other wrote. Turning a mod on turns on what it requires; a mod in error shows why in its
   row. Its Install also opens `.cleriamod` files with it (CleriaCore's file association, per user): a
-  double-click installs the mod, in the window already open if there is one. A mod installed while the
+  double-click installs the mod, in the window already open if there is one. A mod's page shows its own
+  settings: its Lua script is started in the manager on a host with no game, no network (`Limits::network`)
+  and no events, and its pages are drawn with the panel's widgets (a page's buttons do nothing there). A mod installed while the
   game runs is turned on at the game's next start (CleriaCore's `.cleriamod-enable` queue).
   For tests, `CLERIAORE_GAME=<folder>` points it at a scratch game folder (no registry, no shortcut) and a
   file `cleriaore/manager.shot` there asks for its frame as `cleriaore/manager.bmp`.
