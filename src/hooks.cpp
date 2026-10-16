@@ -957,8 +957,11 @@ int __fastcall hook_save(char* file) {
 //             "elapsed" path (0x56de98: [ctx+0x1e8] = 0, its epilogue) is taken at once, with ecx = the ctx (edi).
 //   0x56a4ac  the tail the "wait for a subsystem" ops share (a walk 0x5742b0, the camera and effects 0x574310 /
 //             0x574330, the text's advance 0x5741b0): `test al, al ; jne 0x56db1d` (al = done). Skipping, al = 1,
-//             unless a scene is loading (either streaming manager, *0x730194 / *0x730170, busy or not made yet):
-//             a script let past a load crashed the game.
+//             unless a window is up (*0x730194 the message box, *0x730170 the item / menu dialog, either not made
+//             yet: the retail client's guard, which it took for the streaming managers; WAITOPS.md §3.9 0xf6).
+//   0x5741b0  0xf3 Wait_Prompt (FUN_005741b0, ecx = the script): its message box (a GoWndText, type 0x16) counts as
+//             answered, so a scene's lines go by without a press. Never an item box or a menu (a GoWndDialog, type
+//             0x15): those wait for the player, as in CleriaCore's own skip.
 // And whatever the skip, op 0x100 Wait_ChrMoving(actor) (0x56a770: `test al, al ; je 0x56db1d`, al = the actor still
 // moves) does not use that tail: an actor told to walk where it cannot get held its script, and the player's
 // controls, for good (Hugo with Epona after Pictimos, S_5099). A script that has stood kMovingMs on one is let through.
@@ -969,11 +972,14 @@ constexpr std::uint8_t kWaitOpBytes[] = {0x6a, 0x00, 0x51, 0x56, 0x68, 0xf2, 0x0
 constexpr std::uint8_t kWaitDoneBytes[] = {0x8b, 0xc1, 0xc7, 0x80, 0xe8, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 constexpr std::uint8_t kWaitTailBytes[] = {0x84, 0xc0, 0x0f, 0x85, 0x69, 0x36, 0x00, 0x00};
 constexpr std::uint8_t kWaitMovingBytes[] = {0x84, 0xc0, 0x0f, 0x84, 0xa5, 0x33, 0x00, 0x00, 0xe9, 0x37, 0xfd, 0xff, 0xff};
+constexpr std::uintptr_t kWaitPrompt = 0x5741b0;
+constexpr std::uint8_t kWaitPromptBytes[] = {0x56, 0x8b, 0xf1, 0x8b, 0x8e, 0x3c, 0x02, 0x00, 0x00, 0x85, 0xc9, 0x0f, 0x84, 0x8e, 0x00, 0x00};
 constexpr unsigned long kMovingMs = 15000;   // [H] no walk of the game's takes anywhere near this long
 volatile char g_skip = 0;                    // some mod asks for the skip
 void* g_wait_op = nullptr;
 void* g_wait_tail = nullptr;
 void* g_wait_moving = nullptr;
+void* g_wait_prompt = nullptr;
 
 __declspec(naked) void hook_wait_op() {
     __asm {
@@ -1007,6 +1013,13 @@ __declspec(naked) void hook_wait_tail() {
         popfd
         jmp  dword ptr [g_wait_tail]
     }
+}
+using WaitPromptFn = char(__fastcall*)(void* script, void* edx);   // __thiscall, no arguments
+char __fastcall hook_wait_prompt(void* script, void* edx) {
+    const char done = reinterpret_cast<WaitPromptFn>(g_wait_prompt)(script, edx);   // (arms the window, as always)
+    if (done || !g_skip) return done;
+    const std::uint8_t* w = *reinterpret_cast<std::uint8_t* const*>(static_cast<std::uint8_t*>(script) + 0x23c);
+    return w && w[0x10] == 0x16 ? 1 : 0;   // the window's type (vtbl[0] 0x44b3f0: mov al, [ecx+0x10])
 }
 // -> whether the actor still counts as moving. Several scripts can stand on the op at once (a scene and its children):
 // each context has its own clock.
@@ -1108,6 +1121,7 @@ const Site kSites[] = {
 const Site kSkipSites[] = {
     SITE(kWaitOp, kWaitOpBytes, &hook_wait_op, &g_wait_op), SITE(kWaitTail, kWaitTailBytes, &hook_wait_tail, &g_wait_tail),
     SITE(kWaitMoving, kWaitMovingBytes, &hook_wait_moving, &g_wait_moving),
+    SITE(kWaitPrompt, kWaitPromptBytes, &hook_wait_prompt, &g_wait_prompt),
 };
 #undef SITE
 
