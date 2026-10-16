@@ -62,6 +62,11 @@ one lower in the list wins.
 **F1**, open **Mods**, then the mod (the game pauses while the panel is open). A change made outside the
 game applies the next time it starts.
 
+**Update a mod.** CleriaOre looks for updates when it opens: a mod with a newer release shows its new
+version in gold in the list. Open the mod and press **Update to ...**, or press **Update N mods** under
+the list. It works for mods whose `Website` is their GitHub page. Each mod's settings stay, and a mod you
+had turned off stays off.
+
 **Remove a mod.** Open the mod's page and press **Remove this mod** twice. It goes to the Recycle Bin.
 
 **Play without mods.** Turn **Use mods** off; nothing is uninstalled.
