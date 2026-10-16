@@ -201,6 +201,12 @@ void save_order(const std::vector<std::string>& ids) {
     g_order = ids;
     save_prefs();
 }
+bool use_mods_now() { return g_use; }
+void set_use_mods(bool on) {
+    g_ini.load(dir() / "cleriaore.ini");
+    g_ini.set_int("cleria.mods", "UseMods", on ? 1 : 0);
+    g_ini.save(dir() / "cleriaore.ini");
+}
 void save_prefs() {
     mods::Prefs p = mods::prefs_of(g_list, g_use);
     if (!g_order.empty()) p.order = g_order;

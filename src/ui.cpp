@@ -212,7 +212,13 @@ void mods_page(ui::List& L) {
     }
     if (!g_sub.empty()) return mod_page(L);
     ui::section(L, "Mods");
-    if (mod_list().empty())
+    if (!use_mods_now()) {   // the game started without mods: nothing was loaded, so there is no list to show
+        static bool on = false;
+        ui::info(L, "Mods are off", "", ui::kWarn, "Use mods is off: the game started as shipped.");
+        if (ui::toggle(L, "Use mods", &on, "Turns the mods back on at the game's next start, with the choices you had."))
+            set_use_mods(on);
+        if (on) ui::info(L, "", "Restart the game to play with your mods", ui::kWarn);
+    } else if (mod_list().empty())
         ui::info(L, "No mod installed", "", ui::kMuted, ("Put a mod's folder, .zip or .cleriamod in:\n\n" + (dir() / "mods").string()).c_str());
     if (g_changed) ui::info(L, "", "Restart the game to apply the changes", ui::kWarn);
     order_init();

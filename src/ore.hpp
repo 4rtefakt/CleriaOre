@@ -154,6 +154,10 @@ bool actor_held(const void* actor);                  // host.cpp: a mod holds th
 std::vector<cleria::mods::Mod>& mod_list();                           // every mod found, in load order
 std::vector<std::unique_ptr<cleria::script::Mod>>& scripts();         // the started scripts
 void save_prefs();
+// [cleria.mods] UseMods as this session started with it (off: no mod was loaded, mod_list() is empty), and the
+// player's choice for the next start (only that key is written: the list and the order stay).
+bool use_mods_now();
+void set_use_mods(bool on);
 void save_order(const std::vector<std::string>& ids);   // the load order as the panel changed it: kept for the next start                                                    // mod_list()'s order and On / Off -> cleriaore.ini
 // A mod's settings, cleriaore.ini [cleria.mod.<id>] (cleria.settings):
 std::optional<std::string> setting(const std::string& mod, const std::string& key);
