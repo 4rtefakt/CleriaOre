@@ -1,14 +1,37 @@
+<div align="center">
+
+<img src="docs/icon.png" alt="" width="96">
+
 # CleriaOre
 
-**A mod loader for Ys Origin on Steam.** Install it once, then turn mods on and off from a small
-program outside the game or from a panel inside it.
+**A mod loader for Ys Origin on Steam.**
+
+Install it once, then turn mods on and off from a small program outside the game or from a panel inside it.
+
+[![Download](https://img.shields.io/badge/download-latest%20release-2f9e44?logo=windows)](../../releases/latest)
+![Game](https://img.shields.io/badge/Ys%20Origin-Steam%20(Windows)-1b2838?logo=steam)
+![Mods](https://img.shields.io/badge/mods-.cleriamod%20%C2%B7%20Lua-4c6ef5)
+![Uninstall](https://img.shields.io/badge/uninstall-one%20click-lightgrey)
 
 ![The CleriaOre manager, listing the installed mods](docs/manager-mods.png)
+
+</div>
 
 CleriaOre is a fan project. It is not made, endorsed or supported by Nihon Falcom or XSEED, and it
 contains none of the game's files: you need your own copy of Ys Origin.
 
-## Install
+## ✨ What it gives you
+
+- **Mods in the original game.** Reskins, new items and chests, and Lua-scripted mods, all in the Steam
+  version you already own.
+- **A manager outside the game** to install, order and remove mods, and a **panel inside it** (F1, or
+  **Mods** on the title screen) for each mod's settings.
+- **Nothing permanent.** Your saves are not touched, and removing the loader puts the game back exactly as
+  Steam installed it.
+- **The same mods as [CleriaCore](https://github.com/4rtefakt/YsOrigin-CleriaCore)**, the fan-made engine for
+  Ys Origin: one mod package runs on both.
+
+## 🚀 Install
 
 1. Download **`CleriaOre-Setup-1.0.0.exe`** from the [latest release](../../releases/latest).
 2. Close the game if it is running, then run the file. Windows may warn that it comes from an unknown
@@ -23,7 +46,7 @@ pick its `yso_win.exe`.
 
 ![The Game page: the game found, the loader installed](docs/manager-game.png)
 
-## Using mods
+## 🧩 Using mods
 
 **Add a mod.** Double-click the mod's `.cleriamod` file. Or, on the **Mods** page, press **Install a mod
 file...** and pick its `.cleriamod` or `.zip`, or drop the file on the window. It is checked, copied in and
@@ -43,7 +66,12 @@ game applies the next time it starts.
 
 **Play without mods.** Turn **Use mods** off; nothing is uninstalled.
 
-## Uninstall
+### Mods to try
+
+- **[Archipelago](https://github.com/4rtefakt/ys-origin-cleriacore-ap)**: play Ys Origin in a multiworld
+  randomizer with friends and other games.
+
+## 🧹 Uninstall
 
 On the **Game** page press **Remove the loader**. The game is back to how Steam installed it. Your mods
 and their settings stay in the game's `cleriaore` folder; delete that folder too if you want nothing
@@ -52,7 +80,7 @@ left.
 If another mod's `dinput8.dll` was in the game folder when you installed CleriaOre, it was kept aside
 and is put back now.
 
-## Good to know
+## 💡 Good to know
 
 - **Which game.** The Steam version of Ys Origin for Windows, in its current build (2024-01-08). On any
   other version CleriaOre does nothing and the game runs as usual; the Game page tells you which case
@@ -65,11 +93,13 @@ and is put back now.
 - **Something went wrong?** The Game page has **Open the log**. It says what the loader and each mod
   did at the game's last start.
 
-## Making mods
+## 🛠️ Making mods
 
 A mod for CleriaOre is a mod for [CleriaCore](https://github.com/4rtefakt/YsOrigin-CleriaCore), the
 fan-made engine for Ys Origin: the same package (`mod.ini`, replacement files, Lua scripts on the
 `cleria.*` API) runs on both. CleriaCore's `samples/mods/README.md` is the guide.
 
 CleriaOre does not back all of that API on the original game yet. What works today, and how to build
-CleriaOre from source, is in [docs/STATUS.md](docs/STATUS.md).
+CleriaOre from source, is in [docs/STATUS.md](docs/STATUS.md). What was learnt of the game's program to make
+the loader work is kept with the rest of the Ys Origin research, in the private
+[yso](https://github.com/4rtefakt/yso/blob/main/retail/cleriaore/RETAIL_RE.md) repository.

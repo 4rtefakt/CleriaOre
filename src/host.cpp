@@ -624,6 +624,8 @@ struct RetailHost : script::Host {
         auto arg = [&](std::size_t i, double d = 0.0) { return i < n.size() ? n[i] : d; };
         if (op == "pause") { set_pause(mod, arg(0) != 0); return true; }          // these two hold with or without a game
         if (op == "speed") { set_speed(mod, arg(0, 1.0)); return true; }
+        if (op == "skip_cutscenes") { set_skip(mod, arg(0) != 0); return true; }
+        if (op == "script_stop") return stop_filtered_script();
         if (op == "bgm_file") return play_music_file(text);                       // an Ogg file of the mod's folder
         if (op == "se_file") {                                                    // a WAV of the mod's folder, by Windows itself: one at a time, at its own volume
             return !text.empty() && PlaySoundW(std::filesystem::u8path(text).c_str(), nullptr, SND_FILENAME | SND_ASYNC | SND_NODEFAULT) != FALSE;
