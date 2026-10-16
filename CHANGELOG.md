@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- The manager's **Install a mod file...** and update buttons are above the list of mods, not below it.
+- A failed update download says so in the message row.
+
 ## 1.1.0
 
 For players:

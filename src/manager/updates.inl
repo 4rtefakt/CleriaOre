@@ -14,6 +14,7 @@ struct Updates {
     std::map<std::string, Update> found;                     // mod id -> a newer release
     bool busy = false;                                       // a check or a download runs
     std::string status;                                      // what the last check or download came to
+    std::string error;                                       // a download that failed: told once, in the message row
     std::vector<std::pair<std::string, fs::path>> ready;     // downloaded, to install: mod id, file
     std::optional<Update> self;                              // a newer CleriaOre
     fs::path self_ready;                                     // ... downloaded: started by the next frame
@@ -109,7 +110,7 @@ void download_self() {
         std::lock_guard lk(g_up.mu);
         g_up.busy = false;
         if (ok) g_up.self_ready = to;
-        else g_up.status = u.file + " could not be downloaded" + (rs.ok ? " (HTTP " + std::to_string(rs.status) + ")" : ": " + rs.error);
+        else g_up.error = g_up.status = u.file + " could not be downloaded" + (rs.ok ? " (HTTP " + std::to_string(rs.status) + ")" : ": " + rs.error);
     }).detach();
 }
 
@@ -133,7 +134,7 @@ void download_update(const std::string& id) {
         std::lock_guard lk(g_up.mu);
         g_up.busy = false;
         if (ok) g_up.ready.emplace_back(id, to);
-        else g_up.status = u.file + " could not be downloaded" + (rs.ok ? " (HTTP " + std::to_string(rs.status) + ")" : ": " + rs.error);
+        else g_up.error = g_up.status = u.file + " could not be downloaded" + (rs.ok ? " (HTTP " + std::to_string(rs.status) + ")" : ": " + rs.error);
     }).detach();
 }
 
@@ -145,6 +146,8 @@ void take_updates() {
         std::lock_guard lk(g_up.mu);
         ready.swap(g_up.ready);
         busy = g_up.busy;
+        if (!g_up.error.empty()) say(g_up.error, true);
+        g_up.error.clear();
     }
     fs::path self;
     {
