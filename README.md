@@ -33,7 +33,7 @@ contains none of the game's files: you need your own copy of Ys Origin.
 
 ## 🚀 Install
 
-1. Download **`CleriaOre-Setup-1.0.0.exe`** from the [latest release](../../releases/latest).
+1. Download **`CleriaOre-Setup-1.1.0.exe`** from the [latest release](../../releases/latest).
 2. Close the game if it is running, then run the file. Windows may warn that it comes from an unknown
    publisher (it is not signed): choose *More info*, then *Run anyway*.
 3. CleriaOre finds your game through Steam. On the **Game** page, press **Install the loader**.
