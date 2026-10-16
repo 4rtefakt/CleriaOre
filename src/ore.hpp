@@ -28,6 +28,7 @@ bool install_hooks();                  // hooks.cpp: false = not the yso_win.exe
 void start(bool hooked);               // load the mods, start their Lua scripts (once, off DllMain)
 void wait_started();                   // returns once start() is done
 bool hooked();                         // hooks.cpp: the hooks are in (this process is the game)
+bool stop_filtered_script();           // hooks.cpp: the script whose store a filter answers ends after it; false: none
 void set_cutscene_skip(bool on);       // hooks.cpp: every cutscene's waits end at once, the intro movies are not opened
 // hooks.cpp, the game thread: a file as the game reads it ("data\map\s_10\s_1001\s_box01.xso.z"; a mod's
 // override, else the game's archive), a ".z" unpacked. False: there is none.

@@ -796,11 +796,15 @@ int flag_index(const std::int32_t* cell) {
 
 // A decision on the store of `value` into flag `index`: true = the store must not happen (a Replace has
 // then written its own cell here).
+// The script whose store the mods' filters are answering (cleria.script.stop), only during that call.
+void* g_filtered = nullptr;
 bool store_decided(int sub, int index, std::int32_t old_value, std::int32_t value, const void* script) {
     cleria::GrantQuery q = query(cleria::GrantQuery::Kind::Store, sub, index, script);
     q.old_value = old_value;
     q.value = value;
+    g_filtered = const_cast<void*>(script);
     const cleria::GrantDecision d = on_grant(q);
+    g_filtered = nullptr;
     if (d.action == cleria::GrantDecision::Action::Pass) return false;
     if (d.action == cleria::GrantDecision::Action::Replace && d.index >= 0 && d.index < 0x200)
         reinterpret_cast<std::int32_t*>(kFlags)[d.index] = d.value;
@@ -1427,6 +1431,14 @@ void title_tick() {
 
 bool hooked() { return g_hooked; }
 void set_cutscene_skip(bool on) { g_skip = on ? 1 : 0; }
+// cleria.script.stop: the script's PC (GoScript +0x1e4) past any script's length. Both store sites go on to the VM's
+// loop (0x5664c9), whose bounds check (PC >= the length: jae) ends the script by its own path, as running off its
+// end does. The retail Archipelago client ends an altar's event the same way.
+bool stop_filtered_script() {
+    if (!g_hooked || !g_filtered) return false;
+    *reinterpret_cast<std::uint32_t*>(static_cast<char*>(g_filtered) + 0x1e4) = 0x7fffffffu;
+    return true;
+}
 bool spawn_pickup(int item, const float* pos, bool resting) {
     if (!g_hooked) return false;
     int id = item;
