@@ -38,6 +38,11 @@ What works:
   monster's model with the room). An actor's id is the game's own instance id, good for the room.
 - Game operations: `player.set_position`, `set_mp`, `set_boost`, `set_exp`, heal and hurt, `game.pause`,
   `game.set_speed`, `game.room_title` (the game's scene table; so `floor` and `zone`), `game.goto_room` (the request a script's ChangeScene makes), the random seed, a sound of the game's (`audio.se`), `camera.get`, `player.pose` and `familiars`, `player.tune` (speed, jump, MP cost, MP regeneration, Boost gain, extra air jumps), `player.set_invulnerable`, a script's hits (`combat.damage` on a monster, `combat.strike` on the player, without the flinch), `world.boss` (the gauge; no `actor` for a boss built of map objects) and `combat.boss_bonus`. The "damage" filter also sees the player's hits on a boss's parts. What was learnt of the retail game for these is in [RETAIL_RE.md](RETAIL_RE.md).
+- `game.skip_cutscenes` (the retail Archipelago client's fast-forward, on its sites): while a mod asks, a cutscene's
+  timed waits and its "wait for a walk, a pan, a fade" waits end at once (never a scene load's), and the intro movies
+  are not opened. Not CleriaCore's whole skip: what a waited-for walk or fade would have done is cut short, not
+  landed. Unasked, a script that stands 15 s on one `Wait_ChrMoving` (an actor that cannot reach its mark) is let
+  through, with a line in the log.
 - `content/*.ini`: `chests.ini`, `rules.ini`, `pickups.ini` (items of the game's own), `text.ini` (a script's
   strings), new items
   (0x100..0x1FF) kept with the save, the retail items' patched name, description and value.

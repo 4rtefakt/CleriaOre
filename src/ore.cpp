@@ -260,6 +260,12 @@ void start(bool hooked) {
 Sidecar& sidecar() { return g_sidecar; }
 
 void request_reload(const std::string& mod) { g_reload.insert(mod); }
+std::set<std::string> g_skip_mods;      // the mods that ask for the cutscene skip (game.skip_cutscenes)
+void set_skip(const std::string& mod, bool on) {
+    if (on) g_skip_mods.insert(mod);
+    else g_skip_mods.erase(mod);
+    set_cutscene_skip(!g_skip_mods.empty());
+}
 void set_pause(const std::string& mod, bool on) {
     if (on) g_pause.insert(mod);
     else g_pause.erase(mod);
@@ -366,6 +372,7 @@ void reload(const std::string& id) {
         g_tune.erase(id);
         g_hud_hidden.erase(id);
         g_speed.erase(id);
+        set_skip(id, false);
         recompute_stats();
         up.reset();
         up = std::make_unique<script::Mod>(def->m.id, def->label(), def->m.version, def->root, host());

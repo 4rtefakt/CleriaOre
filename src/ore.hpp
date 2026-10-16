@@ -28,6 +28,7 @@ bool install_hooks();                  // hooks.cpp: false = not the yso_win.exe
 void start(bool hooked);               // load the mods, start their Lua scripts (once, off DllMain)
 void wait_started();                   // returns once start() is done
 bool hooked();                         // hooks.cpp: the hooks are in (this process is the game)
+void set_cutscene_skip(bool on);       // hooks.cpp: every cutscene's waits end at once, the intro movies are not opened
 // hooks.cpp, the game thread: a file as the game reads it ("data\map\s_10\s_1001\s_box01.xso.z"; a mod's
 // override, else the game's archive), a ".z" unpacked. False: there is none.
 bool game_file(const char* path, std::vector<std::uint8_t>& out);
@@ -123,6 +124,7 @@ float base_stat(int stat);                           // hooks.cpp: the game's ow
 void recompute_stats();                              // hooks.cpp: the game's recompute, now
 // A mod's hold on the game (game.pause) and its factor of the game's speed (game.speed), per mod.
 void set_pause(const std::string& mod, bool on);
+void set_skip(const std::string& mod, bool on);      // a mod's game.skip_cutscenes
 bool paused();                                       // some mod holds the game
 void set_speed(const std::string& mod, double factor);
 double speed();                                      // the product of the mods' factors, 0.1 .. 4

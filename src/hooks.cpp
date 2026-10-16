@@ -946,6 +946,127 @@ int __fastcall hook_save(char* file) {
     return r;
 }
 
+// ---- the cutscene skip (cleria.game.skip_cutscenes) and the Wait_ChrMoving watchdog ------------------------------
+// As the retail Archipelago client does them (ys-origin-archipelago mod/src/hook_vm.cpp), on the same sites. While a
+// mod asks for the skip, a cutscene's waits end the frame they start:
+//   0x56de74  op 0xF2 Wait_Time: a countdown at ctx+0x1e8 that yields until it runs out. Skipping, the handler's own
+//             "elapsed" path (0x56de98: [ctx+0x1e8] = 0, its epilogue) is taken at once, with ecx = the ctx (edi).
+//   0x56a4ac  the tail the "wait for a subsystem" ops share (a walk 0x5742b0, the camera and effects 0x574310 /
+//             0x574330, the text's advance 0x5741b0): `test al, al ; jne 0x56db1d` (al = done). Skipping, al = 1,
+//             unless a scene is loading (either streaming manager, *0x730194 / *0x730170, busy or not made yet):
+//             a script let past a load crashed the game.
+// And whatever the skip, op 0x100 Wait_ChrMoving(actor) (0x56a770: `test al, al ; je 0x56db1d`, al = the actor still
+// moves) does not use that tail: an actor told to walk where it cannot get held its script, and the player's
+// controls, for good (Hugo with Epona after Pictimos, S_5099). A script that has stood kMovingMs on one is let through.
+// The intro movies are not opened while skipping either (the engine passes over a movie it cannot open): they play
+// before any script, so no wait of theirs is there to end.
+constexpr std::uintptr_t kWaitOp = 0x56de74, kWaitDone = 0x56de98, kWaitTail = 0x56a4ac, kWaitMoving = 0x56a770;
+constexpr std::uint8_t kWaitOpBytes[] = {0x6a, 0x00, 0x51, 0x56, 0x68, 0xf2, 0x00, 0x00, 0x00, 0x52, 0x8b, 0xcf};
+constexpr std::uint8_t kWaitDoneBytes[] = {0x8b, 0xc1, 0xc7, 0x80, 0xe8, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+constexpr std::uint8_t kWaitTailBytes[] = {0x84, 0xc0, 0x0f, 0x85, 0x69, 0x36, 0x00, 0x00};
+constexpr std::uint8_t kWaitMovingBytes[] = {0x84, 0xc0, 0x0f, 0x84, 0xa5, 0x33, 0x00, 0x00, 0xe9, 0x37, 0xfd, 0xff, 0xff};
+constexpr unsigned long kMovingMs = 15000;   // [H] no walk of the game's takes anywhere near this long
+volatile char g_skip = 0;                    // some mod asks for the skip
+void* g_wait_op = nullptr;
+void* g_wait_tail = nullptr;
+void* g_wait_moving = nullptr;
+
+__declspec(naked) void hook_wait_op() {
+    __asm {
+        cmp  byte ptr [g_skip], 0
+        je   pass
+        mov  ecx, edi
+        mov  eax, kWaitDone
+        jmp  eax
+    pass:
+        jmp  dword ptr [g_wait_op]
+    }
+}
+bool __cdecl wait_tail_done() {
+    if (!g_skip) return false;
+    for (std::uintptr_t at : {std::uintptr_t(0x730194), std::uintptr_t(0x730170)}) {
+        const std::int32_t* m = *reinterpret_cast<std::int32_t* const*>(at);
+        if (!m || *m != 0) return false;
+    }
+    return true;
+}
+__declspec(naked) void hook_wait_tail() {
+    __asm {
+        pushfd
+        pushad
+        call wait_tail_done
+        test al, al
+        jz   keep
+        mov  byte ptr [esp + 28], 1     // the saved eax's low byte: done
+    keep:
+        popad
+        popfd
+        jmp  dword ptr [g_wait_tail]
+    }
+}
+// -> whether the actor still counts as moving. Several scripts can stand on the op at once (a scene and its children):
+// each context has its own clock.
+int __cdecl wait_moving(int moving, void* ctx) {
+    struct Slot { void* ctx; unsigned long since, seen; };
+    static Slot slots[8] = {};
+    const unsigned long now = GetTickCount();
+    Slot* slot = nullptr;
+    Slot* spare = &slots[0];
+    for (Slot& s : slots) {
+        if (s.ctx == ctx) { slot = &s; break; }
+        if (!s.ctx || now - s.seen > 1000) spare = &s;           // free, or a wait that ended
+    }
+    if (!moving) { if (slot) slot->ctx = nullptr; return 0; }
+    if (!slot || now - slot->seen > 1000) {                       // a new wait
+        slot = slot ? slot : spare;
+        slot->ctx = ctx;
+        slot->since = now;
+    }
+    slot->seen = now;
+    if (now - slot->since < kMovingMs) return 1;
+    slot->ctx = nullptr;
+    log("[script] watchdog: a script waited %lu s on Wait_ChrMoving in scene %d: let through", kMovingMs / 1000,
+        *reinterpret_cast<std::int32_t*>(0x76c100));
+    return 0;
+}
+__declspec(naked) void hook_wait_moving() {
+    __asm {
+        pushfd
+        pushad
+        movzx eax, al
+        push edi                        // the script's context
+        push eax
+        call wait_moving
+        add  esp, 8
+        mov  byte ptr [esp + 28], al
+        popad
+        popfd
+        jmp  dword ptr [g_wait_moving]
+    }
+}
+// The movies the intro plays (the game's tables at 0x6a05b0: <lang>_pro.avi the prologue, yso_op.avi, yso_logo.avi,
+// the inserts yso_ins01..03.dat). Never the endings (yso_ed01 / 02) nor yso_ins04.dat, which is the font.
+bool intro_movie(const wchar_t* name) {
+    if (!g_skip || !name) return false;
+    std::wstring p(name);
+    for (wchar_t& c : p) c = wchar_t(towlower(c));
+    for (const wchar_t* m : {L"yso_logo", L"yso_op", L"yso_ins01", L"yso_ins02", L"yso_ins03", L"_pro.avi"})
+        if (p.find(m) != std::wstring::npos) return true;
+    return false;
+}
+// KERNELBASE's CreateFileW, which every open of the process ends in (the movies are opened by the video codec's
+// DLL, not through the game's imports).
+using KbCreateFn = HANDLE(WINAPI*)(LPCWSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTES, DWORD, DWORD, HANDLE);
+KbCreateFn g_kb_create_w = nullptr;
+HANDLE WINAPI hook_kb_create_w(LPCWSTR name, DWORD access, DWORD share, LPSECURITY_ATTRIBUTES sa, DWORD how, DWORD flags, HANDLE tmpl) {
+    if (intro_movie(name)) {
+        log("[movie] skipped: not opened");
+        SetLastError(ERROR_FILE_NOT_FOUND);
+        return INVALID_HANDLE_VALUE;
+    }
+    return g_kb_create_w(name, access, share, sa, how, flags, tmpl);
+}
+
 struct Site {
     std::uintptr_t at;
     const std::uint8_t* bytes;   // what the build has there
@@ -977,6 +1098,12 @@ const Site kSites[] = {
     SITE(kDialogDraw, kDialogDrawBytes, &hook_dialog_draw, &g_dialog_draw),
     SITE(kListOpen, kListOpenBytes, &hook_list_open, &g_list_open), SITE(kListAdd, kListAddBytes, &hook_list_add, &g_list_add),
     SITE(kSpawn, kSpawnBytes, &hook_spawn, &g_spawn),       SITE(kTouch, kTouchBytes, &hook_touch, &g_touch),
+};
+// The skip's sites: hooked when their bytes are the build's, but not part of is_the_build (without them CleriaOre
+// runs, with no skip and no watchdog).
+const Site kSkipSites[] = {
+    SITE(kWaitOp, kWaitOpBytes, &hook_wait_op, &g_wait_op), SITE(kWaitTail, kWaitTailBytes, &hook_wait_tail, &g_wait_tail),
+    SITE(kWaitMoving, kWaitMovingBytes, &hook_wait_moving, &g_wait_moving),
 };
 #undef SITE
 
@@ -1098,6 +1225,17 @@ bool install_hooks() {
     if (!g_create_a) g_create_a = &CreateFileA;
     for (const Site& site : kSites)
         if (MH_CreateHook(reinterpret_cast<void*>(site.at), site.hook, site.original) != MH_OK) return false;
+    bool skip = std::memcmp(reinterpret_cast<const void*>(kWaitDone), kWaitDoneBytes, sizeof kWaitDoneBytes) == 0;
+    for (const Site& site : kSkipSites)
+        skip = skip && std::memcmp(reinterpret_cast<const void*>(site.at), site.bytes, site.n) == 0;
+    for (const Site& site : kSkipSites)
+        skip = skip && MH_CreateHook(reinterpret_cast<void*>(site.at), site.hook, site.original) == MH_OK;
+    if (HMODULE kb = GetModuleHandleW(L"kernelbase.dll")) {
+        void* at = reinterpret_cast<void*>(GetProcAddress(kb, "CreateFileW"));
+        if (!at || MH_CreateHook(at, reinterpret_cast<void*>(&hook_kb_create_w), reinterpret_cast<void**>(&g_kb_create_w)) != MH_OK)
+            g_kb_create_w = nullptr;
+    }
+    log("[hooks] cutscene skip and watchdog: %s; intro movies: %s", skip ? "in" : "NOT in (other bytes)", g_kb_create_w ? "in" : "not in");
     g_hooked = MH_EnableHook(MH_ALL_HOOKS) == MH_OK;
     return g_hooked;
 }
@@ -1288,6 +1426,7 @@ void title_tick() {
 }
 
 bool hooked() { return g_hooked; }
+void set_cutscene_skip(bool on) { g_skip = on ? 1 : 0; }
 bool spawn_pickup(int item, const float* pos, bool resting) {
     if (!g_hooked) return false;
     int id = item;
