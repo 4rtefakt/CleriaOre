@@ -43,6 +43,8 @@ What works:
   are not opened. Not CleriaCore's whole skip: what a waited-for walk or fade would have done is cut short, not
   landed. Unasked, a script that stands 15 s on one `Wait_ChrMoving` (an actor that cannot reach its mark) is let
   through, with a line in the log.
+- A borderless window (F1 > Mods > Window, `[cleriaore] Borderless=1`): in the game's windowed mode the frame is dropped
+  and the window covers its monitor. The game's own fullscreen is left alone.
 - `cleria.script.stop()` from a content filter on a flag store (0x64 / 0x67): that script ends right after the store.
   Not from the icon or the box filter.
 - `content/*.ini`: `chests.ini`, `rules.ini`, `pickups.ini` (items of the game's own), `text.ini` (a script's

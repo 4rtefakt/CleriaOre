@@ -220,6 +220,12 @@ bool set_setting(const std::string& mod, const std::string& key, const std::stri
     return g_ini.save(dir() / "cleriaore.ini");
 }
 
+bool loader_option(const char* key, bool def) { return g_ini.get_int("cleriaore", key).value_or(def ? 1 : 0) != 0; }
+void set_loader_option(const char* key, bool on) {
+    g_ini.set_int("cleriaore", key, on ? 1 : 0);
+    g_ini.save(dir() / "cleriaore.ini");
+}
+
 void wait_started() { WaitForSingleObject(g_started, INFINITE); }
 
 void start(bool hooked) {
