@@ -74,67 +74,118 @@ script::Mod* script_of(const std::string& id) {
     return nullptr;
 }
 
-// The Mods tab: the list, or one mod's page.
-void mods_page(ui::List& L) {
-    if (!g_sub.empty()) {
-        script::Mod* m = script_of(g_sub);
-        if (ui::back_row(L, "Mods", m ? m->name().c_str() : g_sub.c_str()) || !m) {
-            g_sub.clear();
-            return;
-        }
-        if (!m->ok()) {
-            ui::section(L, "Settings");
-            ui::info(L, "Status", "Stopped by an error", ui::kWarn,
-                     ("This mod's script failed and was turned off until the game restarts.\n\n" + m->error()).c_str());
-            return;
-        }
-        const std::size_t n = m->pages().size();
-        for (std::size_t i = 0; i < n; ++i) m->draw_page(i, &L);
+// The Mods tab: a row a mod (its place in the load order, its name, its state), and one mod's page: its own
+// settings, On / Off and its place in the load order, as the manager shows them. Changes are kept for the next start.
+std::vector<std::string> g_next_order;   // the load order for the next start, as the panel changed it
+
+mods::Mod* mod_by_id(const std::string& id) {
+    for (mods::Mod& m : mod_list())
+        if (m.m.id == id) return &m;
+    return nullptr;
+}
+void order_init() {
+    if (g_next_order.size() == mod_list().size()) return;
+    g_next_order.clear();
+    for (const mods::Mod& m : mod_list()) g_next_order.push_back(m.m.id);
+}
+// Left / Right on a mod: one place up / down. False when it is at that end already.
+bool order_move(std::size_t i, int d) {
+    const std::size_t j = i + std::size_t(d);
+    if (d == 0 || j >= g_next_order.size()) return false;
+    std::swap(g_next_order[i], g_next_order[j]);
+    g_changed = true;
+    save_order(g_next_order);
+    return true;
+}
+// On turns on what it requires too (as the manager does).
+void set_enabled(mods::Mod& m, bool on) {
+    m.enabled = on;
+    if (on)
+        for (const mods::Dep& d : m.m.requires_)
+            if (mods::Mod* o = mod_by_id(d.id); o && !o->enabled) set_enabled(*o, true);
+    g_changed = true;
+    save_prefs();
+}
+// What it does now, and what it will do after a restart.
+const char* state_of(const mods::Mod& m, ImU32* col) {
+    const script::Mod* s = script_of(m.m.id);
+    const bool running = m.state == mods::State::Active;
+    *col = ui::kWarn;
+    if (m.state == mods::State::Error) return "Error";
+    if (s && !s->ok()) return "Stopped";
+    if (m.enabled != running) return m.enabled ? "On after a restart" : "Off after a restart";
+    *col = running ? ui::kGood : ui::kMuted;
+    return running ? "On" : "Off";
+}
+std::string about(const mods::Mod& m) {
+    std::string d = m.label() + "  " + m.m.version + (m.m.author.empty() ? "" : "\nby " + m.m.author);
+    if (!m.m.description.empty()) d += "\n\n" + m.m.description;
+    for (const std::string& e : m.errors) d += "\n\nError: " + e;
+    return d;
+}
+
+void mod_page(ui::List& L) {
+    mods::Mod* m = mod_by_id(g_sub);
+    if (ui::back_row(L, "Mods", m ? m->label().c_str() : g_sub.c_str(), m ? about(*m).c_str() : nullptr) || !m) {
+        g_sub.clear();
         return;
     }
+    if (script::Mod* s = script_of(m->m.id)) {
+        if (!s->ok()) {
+            ui::info(L, "Settings", "Stopped by an error", ui::kWarn,
+                     ("This mod's script failed and was turned off until the game restarts.\n\n" + s->error()).c_str());
+        } else {
+            const std::vector<std::string> pages = s->pages();
+            for (std::size_t i = 0; i < pages.size(); ++i) {
+                if (pages.size() > 1) ui::section(L, pages[i].c_str());
+                s->draw_page(i, &L);
+            }
+        }
+    }
+    ui::section(L, "Mod");
+    bool on = m->enabled;
+    if (ui::toggle(L, "Enabled", &on, "Turns the mod on or off, with the mods it needs. Applies when the game restarts.")) set_enabled(*m, on);
+    ImU32 col;
+    const char* st = state_of(*m, &col);
+    ui::info(L, "State", st, col, m->errors.empty() ? nullptr : about(*m).c_str());
+    order_init();
+    const std::size_t i = std::size_t(std::find(g_next_order.begin(), g_next_order.end(), m->m.id) - g_next_order.begin());
+    char pos[32];
+    std::snprintf(pos, sizeof pos, "%d of %d", int(i) + 1, int(g_next_order.size()));
+    const ui::RowIo r = ui::row_frame(L, "Its place in the load order. Left / Right move it up / down: when two mods change the same "
+                                         "file, the one lower in the list wins. Applies when the game restarts.", true);
+    ui::row_texts(L, r, "Load order", pos, true);
+    order_move(i, r.delta);
+}
+
+void mods_page(ui::List& L) {
+    if (!g_sub.empty()) return mod_page(L);
     ui::section(L, "Mods");
     if (mod_list().empty())
         ui::info(L, "No mod installed", "", ui::kMuted, ("Put a mod's folder, .zip or .cleriamod in:\n\n" + (dir() / "mods").string()).c_str());
-    for (mods::Mod& m : mod_list()) {
-        std::string desc = m.m.description;
-        desc += "\n\n" + m.m.id + " " + m.m.version + (m.m.author.empty() ? "" : ", by " + m.m.author);
-        for (const std::string& e : m.errors) desc += "\n\n" + e;
-        if (g_changed) desc += "\n\nRestart the game to apply.";
-        bool on = m.enabled;
-        if (ui::toggle(L, m.label().c_str(), &on, desc.c_str())) {
-            m.enabled = on;
-            g_changed = true;
-            save_prefs();
+    if (g_changed) ui::info(L, "", "Restart the game to apply the changes", ui::kWarn);
+    order_init();
+    for (std::size_t i = 0; i < g_next_order.size(); ++i) {
+        mods::Mod* m = mod_by_id(g_next_order[i]);
+        if (!m) continue;
+        const std::string desc = about(*m) + "\n\nOK opens its page: its settings, On / Off. Left / Right move it in the load order: "
+                                             "when two mods change the same file, the one lower in the list wins.";
+        const ui::RowIo r = ui::row_frame(L, desc.c_str(), true);
+        ImU32 col;
+        const char* st = state_of(*m, &col);
+        char label[160];
+        std::snprintf(label, sizeof label, "%d   %s", int(i) + 1, m->label().c_str());
+        ui::row_texts(L, r, label, "", true);
+        const float px = 16.5f * ui::S, cy = (r.a.y + r.b.y) * 0.5f;
+        ImFont* f = r.selected ? ui::F.medium : ui::F.body;
+        ui::text(L.dl, f, px, {r.b.x - r.pad - ui::text_size(f, px, st).x, cy - px * 0.55f}, col, st);
+        if (r.activate) {
+            g_sub = m->m.id;
+            break;
         }
-        script::Mod* s = script_of(m.m.id);
-        if (s && (!s->pages().empty() || !s->ok()) &&
-            ui::button(L, ("    " + m.label() + ": settings").c_str(), "This mod's own page."))
-            g_sub = m.m.id;
-    }
-    // The load order, as the manager shows it: Left / Right move a mod. Kept for the next start.
-    if (mod_list().size() > 1) {
-        static std::vector<std::string> order;
-        if (order.size() != mod_list().size()) {
-            order.clear();
-            for (const mods::Mod& m : mod_list()) order.push_back(m.m.id);
-        }
-        ui::section(L, "Load order");
-        for (std::size_t i = 0; i < order.size(); ++i) {
-            std::string label = order[i];
-            for (const mods::Mod& m : mod_list())
-                if (m.m.id == order[i]) label = m.label();
-            char pos[32];
-            std::snprintf(pos, sizeof pos, "%d of %d", int(i) + 1, int(order.size()));
-            const ui::RowIo r = ui::row_frame(L, "Its place in the load order. Left / Right move it up / down: when two mods change the same "
-                                                 "file, the one lower in the list wins. Restart the game to apply.", true);
-            ui::row_texts(L, r, label.c_str(), pos, true);
-            const std::size_t j = i + std::size_t(r.delta);
-            if (r.delta != 0 && j < order.size()) {
-                std::swap(order[i], order[j]);
-                g_changed = true;
-                save_order(order);
-                break;
-            }
+        if (order_move(i, r.delta)) {
+            L.sel += r.delta;   // the selection follows the mod
+            break;
         }
     }
 }
