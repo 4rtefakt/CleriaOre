@@ -14,8 +14,8 @@ FONT5 RCDATA "FiraSansCondensed-Medium.ttf"
 FONT6 RCDATA "OFL.txt"
 
 VS_VERSION_INFO VERSIONINFO
-FILEVERSION 1, 2, 1, 0
-PRODUCTVERSION 1, 2, 1, 0
+FILEVERSION 1, 2, 2, 0
+PRODUCTVERSION 1, 2, 2, 0
 FILEOS VOS_NT_WINDOWS32
 FILETYPE VFT_APP
 BEGIN
@@ -25,8 +25,8 @@ BEGIN
         BEGIN
             VALUE "FileDescription", "CleriaOre, a mod loader for Ys Origin"
             VALUE "ProductName", "CleriaOre"
-            VALUE "FileVersion", "1.2.1"
-            VALUE "ProductVersion", "1.2.1"
+            VALUE "FileVersion", "1.2.2"
+            VALUE "ProductVersion", "1.2.2"
             VALUE "OriginalFilename", "CleriaOre.exe"
         END
     END
