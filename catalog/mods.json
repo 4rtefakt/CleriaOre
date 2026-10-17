@@ -37,6 +37,13 @@
       "repo": "4rtefakt/cleriacore-bestiary"
     },
     {
+      "id": "4rtefakt.coop",
+      "name": "Co-op",
+      "author": "4rtefakt",
+      "description": "Play Ys Origin with friends: one hosts, the others join. You see each other, a room's monsters are the same for everybody and chase all of you, boss gauges fall together, EXP and SP are shared, and a teammate nearby gets you back up.",
+      "repo": "4rtefakt/cleriacore-coop"
+    },
+    {
       "id": "4rtefakt.crowd",
       "name": "Crowd Control",
       "author": "4rtefakt",
