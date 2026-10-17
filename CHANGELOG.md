@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.2.3
+
+- **Co-op** is on the **Get mods** page: play Ys Origin with friends, one hosting and the others joining.
+- The **LiveSplit Autosplitter** no longer turns itself off about 20 seconds after the game starts when LiveSplit
+  is not open. A mod that keeps reconnecting (LiveSplit, a Co-op guest waiting for its host) frees each closed
+  connection at once instead of running out of them.
+- The mod layer follows CleriaCore's latest, so a mod behaves the same on both.
+
 ## 1.2.2
 
 - A new game a mod starts from the title (the Archipelago mod's *New game of a seed*) is a new game for the mods too: the Archipelago mod stamps the save with its seed, sends its first checks and grants the items, as after the game's own New Game.
