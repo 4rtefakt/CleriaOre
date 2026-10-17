@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Updates are also found for a mod whose installed copy names no GitHub page, when it is on the Get mods list.
+
 ## 1.2.0
 
 - A first run of CleriaOre opens on **Getting started**: the steps, in order, until the loader is installed.

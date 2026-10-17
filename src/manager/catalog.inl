@@ -30,6 +30,19 @@ std::vector<Listed> parse_catalog(const std::string& text) {
     return out;
 }
 
+// The list's text: CLERIAORE_CATALOG's file, or this repository's on GitHub. "" when it cannot be had.
+std::string catalog_text() {
+    std::string text;
+    if (const char* local = std::getenv("CLERIAORE_CATALOG")) return read_file(local, text) ? text : std::string();
+    const net::HttpResponse rs = github_get(kCatalogUrl, 1u << 20);
+    return rs.ok && rs.status == 200 ? rs.body : std::string();
+}
+std::map<std::string, std::string> catalog_repos() {
+    std::map<std::string, std::string> out;
+    for (const Listed& l : parse_catalog(catalog_text())) out[l.id] = l.repo;
+    return out;
+}
+
 void read_catalog() {
     {
         std::lock_guard lk(g_cat.mu);
@@ -37,17 +50,9 @@ void read_catalog() {
         g_cat.asked = g_cat.busy = true;
         g_cat.status = "Reading the list of mods...";
     }
-    const char* local = std::getenv("CLERIAORE_CATALOG");
-    const std::string file = local ? local : "";
-    std::thread([file] {
-        std::string text, why;
-        if (!file.empty()) {
-            if (!read_file(file, text)) why = "The list could not be read";
-        } else {
-            const net::HttpResponse rs = github_get(kCatalogUrl, 1u << 20);
-            if (rs.ok && rs.status == 200) text = rs.body;
-            else why = "GitHub could not be reached: try again later";
-        }
+    std::thread([] {
+        const std::string text = catalog_text();
+        std::string why = text.empty() ? "GitHub could not be reached: try again later" : "";
         std::vector<Listed> mods = why.empty() ? parse_catalog(text) : std::vector<Listed>{};
         if (why.empty() && mods.empty()) why = "The list of mods could not be read";
         std::lock_guard lk(g_cat.mu);
