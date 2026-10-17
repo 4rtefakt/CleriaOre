@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.2.0
 
 - A first run of CleriaOre opens on **Getting started**: the steps, in order, until the loader is installed.
 - **Get mods**, a new page in CleriaOre: the mods made for CleriaOre and CleriaCore, each installed with one
@@ -9,6 +9,7 @@
 - A failed update download says so in the message row.
 - The F1 panel restarts the game for you once mods were changed, from the title screen.
 - **Start the game** is also on the manager's Mods page, under the status.
+- The Archipelago mod's connection is compressed (WebSocket permessage-deflate): Archipelago's server no longer warns that it may stop working.
 
 ## 1.1.0
 
