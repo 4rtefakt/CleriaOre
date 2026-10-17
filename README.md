@@ -113,6 +113,8 @@ CleriaOre from source, is in [docs/STATUS.md](docs/STATUS.md). What was learnt o
 the loader work is kept with the rest of the Ys Origin research, in the private
 [yso](https://github.com/4rtefakt/yso/blob/main/retail/cleriaore/RETAIL_RE.md) repository.
 
+<a id="privacy"></a>
+
 ## 🔒 Privacy
 
 CleriaOre collects nothing about you and sends nothing about you anywhere. The only connections it makes
