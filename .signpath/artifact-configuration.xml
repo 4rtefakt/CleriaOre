@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- What SignPath signs in the release workflow's "CleriaOre-unsigned" artifact (a zip holding CleriaOre.exe).
+     Paste this as the CleriaOre project's default artifact configuration in SignPath. Only CleriaOre's own exe is
+     signed, and only when its version resource names the product and the version the workflow passes. -->
+<artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
+  <parameters>
+    <parameter name="version" required="true" />
+  </parameters>
+  <zip-file>
+    <pe-file path="CleriaOre.exe" product-name="CleriaOre" product-version="${version}">
+      <authenticode-sign />
+    </pe-file>
+  </zip-file>
+</artifact-configuration>

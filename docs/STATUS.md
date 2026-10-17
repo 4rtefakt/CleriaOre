@@ -146,6 +146,11 @@ The result is `build/Release/CleriaOre.exe`: the manager and installer in one fi
 (`dinput8.dll`) and the panel's fonts are inside it as resources, and the C runtime is linked in, so that
 file is the whole release.
 
+A release is built by [the release workflow](../.github/workflows/release.yml) from a `v<version>` tag that matches
+the version in `res/cleriaore.rc`: it builds and tests as above on GitHub's Windows runners, signs the exe through
+SignPath once that is set up ([.signpath/README.md](../.signpath/README.md)), and makes a draft release to complete
+and publish.
+
 ## Layout in the game folder
 
 ```
