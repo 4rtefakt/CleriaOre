@@ -623,6 +623,8 @@ void mods_page(ui::List& L) {
     }
 }
 
+#include "catalog.inl"   // Get mods: the list of mods to install with a click
+
 // ---- the Game tab ------------------------------------------------------------------------------------
 void game_page(ui::List& L) {
     ui::section(L, "Ys Origin");
@@ -849,8 +851,9 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int show) {
         g.next = "";
         return true;
     };
+    g_panel.add("Get mods", &get_mods_page);
     g_panel.add("Game", &game_page);
-    if (g.game.empty() || g.loader != Loader::Ours) g_panel.tab = 1;   // first things first
+    if (g.game.empty() || g.loader != Loader::Ours) g_panel.tab = 2;   // first things first: the Game tab
     ShowWindow(wnd, show);
     check_updates();
 

@@ -171,7 +171,7 @@ void take_updates() {
             const bool was_on = before && before->enabled;
             install_mod(file);   // turns it on
             if (!g.msg_bad) {
-                if (!was_on) {   // an update keeps the mod as it was
+                if (before && !was_on) {   // an update keeps the mod as it was (a new one is turned on)
                     mods::Prefs p = mods::prefs_of(g.list, g.use);
                     std::erase(p.active, id);
                     apply(p);

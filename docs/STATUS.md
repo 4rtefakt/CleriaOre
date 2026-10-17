@@ -82,6 +82,9 @@ What works:
   a dropped file is, once it is checked to hold the same mod id, and a mod that was off stays off. CleriaOre
   itself is looked up the same way (4rtefakt/CleriaOre's latest release, a `.exe`): the Game page then offers to
   download it, and starts it once this window has closed. GitHub answers only for a public repository.
+  Get mods: `catalog/mods.json` (this repository's, read from GitHub when the page opens) lists mods by id,
+  name, author, description and GitHub repository; Install takes the repository's latest release's `.cleriamod`.
+  `CLERIAORE_CATALOG=<file>` reads a local list instead.
   For tests, `CLERIAORE_GAME=<folder>` points it at a scratch game folder (no registry, no shortcut) and a
   file `cleriaore/manager.shot` there asks for its frame as `cleriaore/manager.bmp`.
 
