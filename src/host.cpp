@@ -267,6 +267,7 @@ struct RetailHost : script::Host {
         // (the Extra version only where it was bought, as Type Select offers it: 0x74ac00 Yunica, +4 Hugo, +8 Toal)
         if (extra >= 0) at<std::int32_t>(ch == 1 ? 0x74c0dc : ch == 2 ? 0x74c0d8 : 0x74c0d4) = extra != 0 && at<std::int32_t>(0x74ac00 + 4 * (ch - 1)) != 0;
         reinterpret_cast<void(__cdecl*)()>(0x41fd10)();
+        on_new_game();   // the reset's hook names a new game only when the title's own start calls it
         for (const auto& [flag, value] : set)                                 // (after the reset, before the first room's script)
             if (flag >= 0 && flag < 0x200) at<std::int32_t>(0x76b91c + 4 * flag) = value;
         // The title's own tick commits its staged scene when its fade ends; without the title object's flag

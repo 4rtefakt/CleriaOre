@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.2
+
+- A new game a mod starts from the title (the Archipelago mod's *New game of a seed*) is a new game for the mods too: the Archipelago mod stamps the save with its seed, sends its first checks and grants the items, as after the game's own New Game.
+
 ## 1.2.1
 
 - Updates are also found for a mod whose installed copy names no GitHub page, when it is on the Get mods list.
