@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- A first run of CleriaOre opens on **Getting started**: the steps, in order, until the loader is installed.
 - **Get mods**, a new page in CleriaOre: the mods made for CleriaOre and CleriaCore, each installed with one
   click from its latest release. The list is `catalog/mods.json` in this repository.
 - The manager's **Install a mod file...** and update buttons are above the list of mods, not below it.

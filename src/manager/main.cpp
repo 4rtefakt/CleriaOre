@@ -627,6 +627,17 @@ void mods_page(ui::List& L) {
 
 // ---- the Game tab ------------------------------------------------------------------------------------
 void game_page(ui::List& L) {
+    if (g.game.empty() || g.loader != Loader::Ours) {   // the first run: what to do, in order
+        ui::section(L, "Getting started");
+        ui::paragraph(L, g.game.empty() ? "1. Choose the game: Steam does not list Ys Origin here, so press Choose the game... and pick its "
+                                          "yso_win.exe.\n2. Install the loader.\n3. Pick mods on the Get mods page.\n"
+                                          "4. Start the game, and press F1 in it for the mods panel."
+                                        : g.loader == Loader::OtherVersion
+                                              ? "Another CleriaOre is in the game folder. Press Update the loader below: your mods and "
+                                                "their settings stay."
+                                              : "1. Install the loader, below.\n2. Pick mods on the Get mods page.\n"
+                                                "3. Start the game, and press F1 in it for the mods panel.");
+    }
     ui::section(L, "Ys Origin");
     ui::info(L, "Game folder", g.game.empty() ? "Not found" : g.game.string().c_str(), g.game.empty() ? ui::kWarn : ui::kValue,
              g.game.empty() ? "Steam does not list Ys Origin. Choose its yso_win.exe below." : g.game.string().c_str());
