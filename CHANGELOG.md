@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.2.1
 
 - Updates are also found for a mod whose installed copy names no GitHub page, when it is on the Get mods list.
 
