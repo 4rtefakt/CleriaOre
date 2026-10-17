@@ -1,0 +1,110 @@
+{
+  "format": 1,
+  "mods": [
+    {
+      "id": "ysorigin.archipelago",
+      "name": "Archipelago",
+      "author": "4rtefakt",
+      "description": "The Archipelago multiworld client for the Ys Origin apworld, written in Lua on CleriaCore's mod API: the AP protocol, checks sent on chest open, vanilla items swallowed with a relabelled treasure box, items granted (saved with the game, never twice), DeathLink, the goal, an item feed, a tracker and its settings under Mods > Archipelago.",
+      "repo": "4rtefakt/ys-origin-cleriacore-ap"
+    },
+    {
+      "id": "4rtefakt.achievements",
+      "name": "Achievements",
+      "author": "4rtefakt",
+      "description": "Thirty achievements for Ys Origin, kept across all your saves: bosses, hitless fights, close calls, combos, a deathless clear, a clear with each character. A card when one is earned, the list and your progress on its page.",
+      "repo": "4rtefakt/cleriacore-achievements"
+    },
+    {
+      "id": "4rtefakt.adaptive",
+      "name": "Adaptive Difficulty",
+      "author": "4rtefakt",
+      "description": "Enemies hit a little softer each time you die, and return to normal as you clear rooms and bosses without dying. Optionally they hit harder than normal while you are on a streak.",
+      "repo": "4rtefakt/cleriacore-adaptive-difficulty"
+    },
+    {
+      "id": "4rtefakt.autosave",
+      "name": "Autosave+",
+      "author": "4rtefakt",
+      "description": "Rolling autosaves in slots of their own: every few minutes of play, after each boss, and in each new zone. The oldest autosave is replaced, your own saves are never touched.",
+      "repo": "4rtefakt/cleriacore-autosave"
+    },
+    {
+      "id": "4rtefakt.bestiary",
+      "name": "Bestiary+",
+      "author": "4rtefakt",
+      "description": "A hunting log kept with each save: every kind of monster you have killed, how many, the EXP and SP they gave and where you first met them. A card announces each new kind.",
+      "repo": "4rtefakt/cleriacore-bestiary"
+    },
+    {
+      "id": "4rtefakt.crowd",
+      "name": "Crowd Control",
+      "author": "4rtefakt",
+      "description": "Your Twitch chat votes on what happens to you: every minute three effects are put to a vote (type 1, 2 or 3 in chat) and the winner is applied. Reads chat anonymously: no account, no token.",
+      "repo": "4rtefakt/cleriacore-crowd-control"
+    },
+    {
+      "id": "4rtefakt.daily",
+      "name": "Daily Challenge",
+      "author": "4rtefakt",
+      "description": "One challenge a day, the same for everyone: today's date shuffles the tower's chests and picks two rules. Finish the game and get a result code to compare with friends.",
+      "repo": "4rtefakt/cleriacore-daily-challenge"
+    },
+    {
+      "id": "4rtefakt.debug",
+      "name": "Debug Menu",
+      "author": "4rtefakt",
+      "description": "A page to change anything about your game: level, SP, HP, weapon, every item, armor and leggings with their upgrades, the three skills and their levels, blessings, statue warps and raw game flags. For testing and for fun.",
+      "repo": "4rtefakt/cleriacore-debug-menu"
+    },
+    {
+      "id": "4rtefakt.levelsync",
+      "name": "Level Sync",
+      "author": "4rtefakt",
+      "description": "Monsters fight as if they were near your level, so the whole tower stays relevant: weak ones are lifted, strong ones are tamed, and their EXP follows. Bosses are not changed.",
+      "repo": "4rtefakt/cleriacore-level-sync"
+    },
+    {
+      "id": "4rtefakt.livesplit",
+      "name": "LiveSplit Autosplitter",
+      "author": "4rtefakt",
+      "description": "Drives LiveSplit over its WebSocket server: starts the timer on a new game, splits on bosses (and optionally on each new zone), and can send the game time without cutscenes.",
+      "repo": "4rtefakt/cleriacore-livesplit"
+    },
+    {
+      "id": "4rtefakt.mutators",
+      "name": "Mutators",
+      "author": "4rtefakt",
+      "description": "Challenge rules you switch on from F1 > Mods > Mutators: Glass Cannon, Berserker, One Hit, a level cap, Vampire, Midas, Famine and Permadeath. Mix them freely.",
+      "repo": "4rtefakt/cleriacore-mutators"
+    },
+    {
+      "id": "4rtefakt.ngplus",
+      "name": "New Game+",
+      "author": "4rtefakt",
+      "description": "Finish the game, then start again stronger: a new game keeps part of your level, your SP and your weapon, and the tower hits back harder with each cycle.",
+      "repo": "4rtefakt/cleriacore-new-game-plus"
+    },
+    {
+      "id": "4rtefakt.perks",
+      "name": "Roguelite Perks",
+      "author": "4rtefakt",
+      "description": "Every boss you beat lets you choose one of three random perks, kept with the save: more ATK, DEF or HP, healing on kills, better drops, more SP or EXP, longer buffs, a second wind.",
+      "repo": "4rtefakt/cleriacore-roguelite-perks"
+    },
+    {
+      "id": "4rtefakt.runhud",
+      "name": "Run HUD",
+      "author": "4rtefakt",
+      "description": "A small panel with the numbers of your run: time in the room and in the game, kills, deaths, damage per second, damage dealt and taken. Kept with each save, with a recap when the final boss falls.",
+      "repo": "4rtefakt/cleriacore-run-hud"
+    },
+    {
+      "id": "4rtefakt.solorando",
+      "name": "Solo Randomizer",
+      "author": "4rtefakt",
+      "description": "Shuffles what the tower's chests hold, from a seed, with no server: a new game is always beatable (keys, medallions and gear are placed with the tower's logic). Share a seed to race the same layout.",
+      "repo": "4rtefakt/cleriacore-solo-randomizer"
+    }
+  ]
+}

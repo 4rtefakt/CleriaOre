@@ -48,6 +48,9 @@ pick its `yso_win.exe`.
 
 ## 🧩 Using mods
 
+**Find mods.** The **Get mods** page lists the mods made for CleriaOre and CleriaCore. Click one to
+download its latest release, install it and turn it on.
+
 **Add a mod.** Double-click the mod's `.cleriamod` file. Or, on the **Mods** page, press **Install a mod
 file...** and pick its `.cleriamod` or `.zip`, or drop the file on the window. It is checked, copied in and
 turned on. Installing a newer version of a mod you have replaces the old one and keeps its settings.

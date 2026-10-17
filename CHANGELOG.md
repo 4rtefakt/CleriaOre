@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Get mods**, a new page in CleriaOre: the mods made for CleriaOre and CleriaCore, each installed with one
+  click from its latest release. The list is `catalog/mods.json` in this repository.
 - The manager's **Install a mod file...** and update buttons are above the list of mods, not below it.
 - A failed update download says so in the message row.
 - The F1 panel restarts the game for you once mods were changed, from the title screen.
