@@ -4,6 +4,6 @@
 namespace ore {
 
 inline constexpr char kLoaderMark[] = "CleriaOre loader";
-inline constexpr char kVersion[] = "1.2.2";   // res/cleriaore.rc says the same
+inline constexpr char kVersion[] = "1.2.3";   // res/cleriaore.rc says the same
 
 }  // namespace ore
