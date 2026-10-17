@@ -62,20 +62,28 @@ std::optional<Update> newer_release(const std::string& repo, const std::string& 
 }
 
 // Every mod with a GitHub Website, and CleriaOre itself: their latest releases, on a worker.
+std::map<std::string, std::string> catalog_repos();   // catalog.inl: Get mods' list, mod id -> repository
+
 void check_updates() {
     struct Ask { std::string id, version, repo; };
-    std::vector<Ask> asks;
+    std::vector<Ask> asks;   // a mod whose copy names no page (one installed before it did) is looked up in Get mods' list
     for (const mods::Mod& m : g.list)
-        if (const std::string r = github_repo(m.m.website); !r.empty() && !m.m.id.empty()) asks.push_back({m.m.id, m.m.version, r});
+        if (!m.m.id.empty()) asks.push_back({m.m.id, m.m.version, github_repo(m.m.website)});
     {
         std::lock_guard lk(g_up.mu);
         if (g_up.busy) return;
         g_up.busy = true;
         g_up.status = "Looking for updates...";
     }
-    std::thread([asks] {
+    std::thread([asks]() mutable {
         std::map<std::string, Update> found;
         bool failed = false;
+        if (std::any_of(asks.begin(), asks.end(), [](const Ask& a) { return a.repo.empty(); })) {
+            const std::map<std::string, std::string> listed = catalog_repos();
+            for (Ask& a : asks)
+                if (const auto it = listed.find(a.id); a.repo.empty() && it != listed.end()) a.repo = it->second;
+        }
+        std::erase_if(asks, [](const Ask& a) { return a.repo.empty(); });
         for (const Ask& a : asks)
             if (std::optional<Update> u = newer_release(a.repo, a.version, ".cleriamod", &failed)) found[a.id] = *u;
         std::optional<Update> self = newer_release(kOwnRepo, ore::kVersion, ".exe", &failed);
