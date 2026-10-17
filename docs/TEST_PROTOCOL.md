@@ -95,6 +95,18 @@ the Load page has a Delete button. Look at a frame before confirming anything th
 `tools/drive.ps1` wraps the drive (start the game with it, hold keys, send a command, take a picture of the
 window, read the log, stop). The paths at its top are this machine's.
 
+### An elemental altar ended by `cleria.script.stop`
+
+Archipelago ends an altar's event once its skill is withheld (the rest of the event would equip a skill the
+player does not hold). With the probe on, `lua` commands: `cleria.game.skip_cutscenes(true)`, then
+`ore.new_game character=1 difficulty=2` (a game begun in S_2009 directly has no HP), and in S_1000
+`cleria.game.goto_room("S_2009")` and `set_flag(0x74, 1)` (a skill held, for the skill keys). A content
+filter that suppresses the `talkc940` store of 0x75 and calls `cleria.script.stop()` on its store of 0x14F,
+then `cleria.script.run("TalkC940")`. The filter's `stop()` answers true; the log shows the stores of 0xA5,
+0x75, 0x6C, 0xB7, 0x14F and no `Get_Skill` after them; the game plays on, 0x75 is still -1, 0x14F and 0xB9
+(the HUD) are 1, and `[` / `]` and the keys 1 to 3 change nothing wrong. (To run it again: 0x14F 0, 0x6C -1,
+0x75 -1, and the room entered again.)
+
 ## Co-op without a second game
 
 `tools/coop_bot.py` is a fake teammate: it joins a host on 127.0.0.1:7777 as Yunica, walks a circle in the
