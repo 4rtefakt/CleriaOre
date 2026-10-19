@@ -35,7 +35,8 @@ contains none of the game's files: you need your own copy of Ys Origin.
 
 1. Download **`CleriaOre-Setup-1.2.3.exe`** from the [latest release](../../releases/latest).
 2. Close the game if it is running, then run the file. Windows may warn that it comes from an unknown
-   publisher (it is not signed): choose *More info*, then *Run anyway*.
+   publisher (it is not signed yet, see the [code signing policy](#code-signing-policy)): choose
+   *More info*, then *Run anyway*.
 3. CleriaOre finds your game through Steam. On the **Game** page, press **Install the loader**.
 4. Press **Start the game**. In the game, **F1** opens the mods panel.
 
@@ -111,3 +112,40 @@ CleriaOre does not back all of that API on the original game yet. What works tod
 CleriaOre from source, is in [docs/STATUS.md](docs/STATUS.md). What was learnt of the game's program to make
 the loader work is kept with the rest of the Ys Origin research, in the private
 [yso](https://github.com/4rtefakt/yso/blob/main/retail/cleriaore/RETAIL_RE.md) repository.
+
+<a id="privacy"></a>
+
+## 🔒 Privacy
+
+CleriaOre collects nothing about you and sends nothing about you anywhere. The only connections it makes
+are to GitHub, to read public files: when the manager opens it checks for a newer CleriaOre and newer
+versions of your installed mods, and the **Get mods** page reads the list of mods and downloads the ones you
+choose. GitHub sees those requests as it sees any visit to its site
+([GitHub's privacy statement](https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement)).
+The log and your settings stay on your computer. A mod that connects to a server, such as an Archipelago
+multiworld or a co-op session, does so only to the server you give it.
+
+<a id="code-signing-policy"></a>
+
+## ✍️ Code signing policy
+
+Free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by
+[SignPath Foundation](https://signpath.org/).
+
+- Only `CleriaOre-Setup-<version>.exe` is signed, built by this repository's
+  [release workflow](.github/workflows/release.yml) on GitHub's own runners from the tagged source. No
+  binary built anywhere else is signed.
+- Committers and reviewers: the [members of this repository](https://github.com/4rtefakt/CleriaOre/graphs/contributors)
+  with write access, today [@4rtefakt](https://github.com/4rtefakt). A change proposed by anyone else is
+  reviewed by a committer before it is merged.
+- Approvers: [@4rtefakt](https://github.com/4rtefakt) approves each release's signing request in SignPath.
+
+Signing starts with the first release after SignPath Foundation accepts the project; releases before that
+are not signed.
+
+## 📜 License
+
+CleriaOre is free software under the [GNU General Public License v3.0](LICENSE), as is
+[CleriaCore](https://github.com/4rtefakt/YsOrigin-CleriaCore), whose mod layer it builds in. The libraries it
+uses keep their own licenses: MinHook (BSD 2-clause), Dear ImGui, Lua and miniz (MIT), and the Fira fonts
+(SIL Open Font License).

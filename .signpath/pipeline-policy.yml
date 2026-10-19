@@ -1,0 +1,7 @@
+# SignPath pipeline policy for CleriaOre's signing policies (test-signing, release-signing): a signing request
+# is accepted only from a GitHub Actions run on GitHub's own runners, and never from a re-run of an old build.
+github-build-policies:
+  version: '1.0'
+  disallow_reruns: true
+  runners:
+    require_github_hosted: true
